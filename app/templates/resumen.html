@@ -1,0 +1,93 @@
+{% extends "base.html" %} {% block title %}Resumen — {{ nombre }}{% endblock %}
+{% block content %}
+<div class="max-w-5xl">
+  <h1 class="text-xl font-semibold text-slate-900">Resumen: {{ nombre }}</h1>
+  <p class="text-slate-600 mt-1">
+    Verifica la configuración antes de calcular.
+  </p>
+
+  <div class="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50">
+        <tr>
+          <th class="text-left px-3 py-2">Sección</th>
+          <th class="text-right px-3 py-2">% sección</th>
+          <th class="text-right px-3 py-2"># total</th>
+          <th class="text-right px-3 py-2">Realizados</th>
+          <th class="text-left px-3 py-2">Notas (obtenida/base)</th>
+          <th class="px-3 py-2"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for s in secciones %}
+        <tr>
+          <td class="px-3 py-2 font-medium text-slate-900">
+            {{ labels[loop.index0] }}
+          </td>
+          <td class="px-3 py-2 text-right">
+            {{ (s.porcentaje*100)|round(2) }}
+          </td>
+          <td class="px-3 py-2 text-right">{{ s.num_notas }}</td>
+          <td class="px-3 py-2 text-right">{{ s.notas_obtenidas|length }}</td>
+          <td class="px-3 py-2 text-slate-700">
+            {% if s.notas_obtenidas and s.notas_obtenidas|length>0 %} {% for n
+            in s.notas_obtenidas %} {% if n is mapping %} {{
+            (n.score|float)|round(2) }}/{{ ((n.base is defined and
+            n.base)|default(100)|float)|round(2) }}{% if not loop.last %}, {%
+            endif %} {% else %} {{ n|round(2) }}/100{% if not loop.last %}, {%
+            endif %} {% endif %} {% endfor %} {% else %} — {% endif %}
+          </td>
+          <td class="px-3 py-2">
+            <a
+              class="rounded-lg border border-slate-300 px-3 py-1.5 hover:bg-slate-50"
+              href="{{ url_for('web.captura_secciones', nombre=nombre, idx=loop.index0) }}"
+              >Editar</a
+            >
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <form
+    method="post"
+    action="{{ url_for('web.materia_calcular', nombre=nombre) }}"
+    class="mt-4 flex items-end gap-3"
+  >
+    <label class="text-sm text-slate-700">
+      Objetivo final (0..100)
+      <input
+        name="objetivo"
+        type="number"
+        step="0.01"
+        placeholder="Ej. 81"
+        class="mt-1 rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
+      />
+    </label>
+    <button
+      class="rounded-lg px-4 py-2 {% if completo %} bg-brand-600 hover:bg-brand-700 text-white {% else %} bg-slate-200 text-slate-500 cursor-not-allowed {% endif %}"
+      type="submit"
+      {%
+      if
+      not
+      completo
+      %}disabled{%
+      endif
+      %}
+    >
+      Calcular
+    </button>
+    {% if not completo %}
+    <span class="text-sm text-amber-600"
+      >Completa todas las secciones antes de calcular.</span
+    >
+    {% endif %}
+  </form>
+
+  <div class="mt-3 text-xs text-slate-500">
+    Nota: tus nuevas calificaciones registradas ayudan a mejorar las
+    probabilidades futuras de forma anónima.
+  </div>
+</div>
+{% endblock %}

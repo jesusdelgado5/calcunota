@@ -1,0 +1,363 @@
+<!-- templates/planes_beam.html -->
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>CalcuNota · Planes (Beam + Monte Carlo)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        --bg: #0b1220;
+        --card: #121a2b;
+        --muted: #9fb0d3;
+        --text: #e8eefc;
+        --accent: #6aa2ff;
+        --ok: #28a745;
+        --warn: #f0ad4e;
+      }
+      body {
+        margin: 0;
+        font-family: Inter, system-ui, Segoe UI, Roboto, Arial;
+        background: var(--bg);
+        color: var(--text);
+      }
+      header {
+        padding: 16px 20px;
+        border-bottom: 1px solid #1d2942;
+      }
+      h1 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+      }
+      main {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 20px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid #1d2942;
+        border-radius: 14px;
+        padding: 16px;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+      }
+      .card h2 {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      th,
+      td {
+        padding: 8px;
+        border-bottom: 1px solid #223055;
+        text-align: left;
+      }
+      th {
+        color: #b8c7e8;
+        font-weight: 600;
+      }
+      input {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid #324366;
+        background: #0e1626;
+        color: var(--text);
+      }
+      .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .grid-4 {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+      }
+      .btn {
+        display: inline-block;
+        padding: 9px 12px;
+        border-radius: 10px;
+        border: 1px solid #2d4470;
+        background: #10203a;
+        color: var(--text);
+        cursor: pointer;
+      }
+      .btn:hover {
+        background: #142745;
+      }
+      .prob-hi {
+        color: var(--ok);
+        font-weight: 700;
+      }
+      .prob-mid {
+        color: var(--warn);
+        font-weight: 700;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      .sep {
+        height: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Planes de notas · Beam Search + Monte Carlo</h1>
+    </header>
+
+    <main>
+      <section class="card">
+        <h2>Configurar</h2>
+        <p class="muted">
+          Materia: <strong>{{ nombre }}</strong> · Nota actual:
+          <strong>{{ nota_actual }}</strong>
+        </p>
+        <form method="post">
+          <div class="grid-2">
+            <div>
+              <label>Objetivo (0–100)</label>
+              <input
+                name="objetivo"
+                type="number"
+                step="0.1"
+                min="0"
+                max="100"
+                required
+                value="{{ objetivo or '' }}"
+              />
+            </div>
+            <div>
+              <label>Monte Carlo (N)</label>
+              <input
+                name="mc_samples"
+                type="number"
+                step="1000"
+                min="5000"
+                max="100000"
+                value="20000"
+              />
+            </div>
+          </div>
+
+          <div class="sep"></div>
+          <h3 style="margin: 0 0 8px">
+            Evaluaciones pendientes (μ/σ y grid ajustables)
+          </h3>
+          {% if not evals or evals|length==0 %}
+          <p class="muted">
+            No hay evaluaciones pendientes. Vuelve a la captura.
+          </p>
+          {% else %}
+          <table>
+            <thead>
+              <tr>
+                <th>Evaluación</th>
+                <th>Peso w</th>
+                <th>μ</th>
+                <th>σ</th>
+                <th>Grid mín</th>
+                <th>Grid máx</th>
+                <th>Paso</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for e in evals %}
+              <tr>
+                <td>
+                  {{ e.name }}
+                  <input
+                    type="hidden"
+                    name="eval_id[]"
+                    value="{{ e.eval_id }}"
+                  />
+                </td>
+                <td class="mono">{{ '%.3f'|format(e.weight) }}</td>
+                <td>
+                  <input
+                    name="mu[]"
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    value="{{ '%.1f'|format(e.mu) }}"
+                  />
+                </td>
+                <td>
+                  <input
+                    name="sigma[]"
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    max="50"
+                    value="{{ '%.1f'|format(e.sigma) }}"
+                  />
+                </td>
+                <td>
+                  <input
+                    name="s_min[]"
+                    type="number"
+                    step="1"
+                    min="0"
+                    max="100"
+                    value="{{ e.s_min }}"
+                  />
+                </td>
+                <td>
+                  <input
+                    name="s_max[]"
+                    type="number"
+                    step="1"
+                    min="0"
+                    max="100"
+                    value="{{ e.s_max }}"
+                  />
+                </td>
+                <td>
+                  <input
+                    name="s_step[]"
+                    type="number"
+                    step="1"
+                    min="1"
+                    max="50"
+                    value="{{ e.s_step }}"
+                  />
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% endif %}
+
+          <div class="sep"></div>
+          <h3 style="margin: 0 0 8px">Hiperparámetros (búsqueda)</h3>
+          <div class="grid-4">
+            <div>
+              <label>Beam width</label>
+              <input
+                name="beam_width"
+                type="number"
+                min="8"
+                max="256"
+                step="1"
+                value="64"
+              />
+            </div>
+            <div>
+              <label>Máx nodos / nivel</label>
+              <input
+                name="max_nodes_per_level"
+                type="number"
+                min="32"
+                max="2048"
+                step="1"
+                value="256"
+              />
+            </div>
+            <div>
+              <label>Diversificar por eval</label>
+              <input
+                name="diversify_per_eval"
+                type="number"
+                min="3"
+                max="20"
+                step="1"
+                value="6"
+              />
+            </div>
+          </div>
+
+          <div class="sep"></div>
+          <button class="btn" type="submit">Calcular planes</button>
+          <a
+            class="btn"
+            href="{{ url_for('web.resumen_materia', nombre=nombre) }}"
+            >Volver</a
+          >
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Resultados</h2>
+        {% if result %} {% if result.message %}
+        <p class="muted">{{ result.message }}</p>
+        {% endif %}
+        <p class="muted">
+          Prob. baseline de alcanzar el objetivo:
+          <span
+            class="{% if result.baseline_prob>=0.8 %}prob-hi{% elif result.baseline_prob>=0.5 %}prob-mid{% endif %}"
+          >
+            {{ (result.baseline_prob*100)|round(1) }}%
+          </span>
+        </p>
+
+        {% if result.plans and result.plans|length>0 %} {% for p in
+        result.plans[:5] %}
+        <div class="card" style="margin-top: 12px">
+          <div style="display: flex; justify-content: space-between; gap: 10px">
+            <div>
+              <div class="muted">Prob. de cumplir el plan (Monte Carlo)</div>
+              <div class="mono" style="font-size: 22px; font-weight: 700">
+                {{ (p.mc_prob*100)|round(1) }}%
+              </div>
+              <div class="muted">
+                Aprox indep: {{ (p.prod_prob*100)|round(1) }}%
+              </div>
+            </div>
+            <div style="text-align: right">
+              <div class="muted">Aporte mínimo si cumples todo</div>
+              <div class="mono" style="font-size: 18px">
+                +{{ p.sum_contrib }} pts
+              </div>
+            </div>
+          </div>
+          <div class="sep"></div>
+          <table>
+            <thead>
+              <tr>
+                <th>Evaluación</th>
+                <th>Meta</th>
+                <th>Peso w</th>
+                <th>Aporta</th>
+                <th>μ</th>
+                <th>σ</th>
+                <th>P(Y≥s)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for d in p.details %}
+              <tr>
+                <td>{{ d.name }}</td>
+                <td class="mono">{{ d.target }}</td>
+                <td class="mono">{{ '%.2f'|format(d.weight) }}</td>
+                <td class="mono">{{ '%.1f'|format(d.contrib) }}</td>
+                <td class="mono muted">{{ '%.1f'|format(d.mu) }}</td>
+                <td class="mono muted">{{ '%.1f'|format(d.sigma) }}</td>
+                <td class="mono muted">{{ '%.1f'|format(d.p_tail*100) }}%</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endfor %} {% else %}
+        <p class="muted">No se generaron planes con los parámetros actuales.</p>
+        {% endif %} {% else %}
+        <p class="muted">Completa y envía el formulario para generar planes.</p>
+        {% endif %}
+      </section>
+    </main>
+  </body>
+</html>

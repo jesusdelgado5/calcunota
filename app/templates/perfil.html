@@ -1,0 +1,34 @@
+{% extends "base.html" %} {% block title %}Perfil — CalcuNota{% endblock %} {%
+block content %}
+<div class="max-w-xl">
+  <h1 class="text-xl font-semibold text-slate-900">Perfil</h1>
+  {% if is_auth %}
+  <p class="text-slate-600 mt-1">Estás autenticado. (Demo)</p>
+  <a
+    href="{{ url_for('web.dashboard') }}"
+    class="inline-block mt-3 rounded-lg border border-slate-300 px-3 py-2 hover:bg-slate-50"
+    >Ir al Dashboard</a
+  >
+  {% else %}
+  <p class="text-slate-600 mt-1">No has iniciado sesión.</p>
+  <div class="flex gap-2 mt-3">
+    <form method="post" action="{{ url_for('web.login') }}">
+      <button
+        class="rounded-lg border border-slate-300 px-3 py-2 hover:bg-slate-50"
+        type="submit"
+      >
+        Iniciar sesión (demo)
+      </button>
+    </form>
+    <form method="post" action="{{ url_for('web.register') }}">
+      <button
+        class="rounded-lg border border-slate-300 px-3 py-2 hover:bg-slate-50"
+        type="submit"
+      >
+        Registrarse (demo)
+      </button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

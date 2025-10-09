@@ -1,0 +1,462 @@
+# app/services/optimizer_beam_auto.py
+# -*- coding: utf-8 -*-
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import List, Dict, Any, Optional, Tuple
+import math
+import numpy as np
+from scipy.stats import beta as _beta, norm
+
+from app.services.priors import get_eval_prior
+from app.services.calibration import get_calibrator
+from app.services.grades import normalize_nota
+
+
+# ----------------------------- Datos -----------------------------
+@dataclass
+class EvalSpec:
+    eval_id: str
+    name: str
+    weight: float   # 0..1 (porcentaje_seccion/num_notas)
+    mu: float       # 0..100
+    sigma: float    # >0
+    s_min: int      # 0..100
+    s_max: int
+    s_step: int
+    course_key: str
+    eval_label: str  # nombre visible de la sección (para priors/calib)
+
+    @property
+    def grid(self) -> List[int]:
+        return list(range(self.s_min, self.s_max + 1, self.s_step))
+
+
+# -------------------- Beta a partir de (mu, sigma) --------------------
+def _beta_params_from_mu_sigma(mu: float, sigma: float) -> Tuple[float, float]:
+    """Convierte (mu, sigma) (escala 0..100) a Beta(α,β) sobre [0,1]."""
+    m = float(np.clip(mu / 100.0, 1e-4, 1.0 - 1e-4))
+    v = float(np.clip((sigma / 100.0) ** 2, 1e-6, 0.25))
+    k = m * (1 - m) / v - 1.0
+    k = max(k, 2.0)  # evita α,β < 1 (colas raras)
+    alpha = m * k
+    beta = (1 - m) * k
+    return float(alpha), float(beta)
+
+
+def _tail_prob_beta(s: int, alpha: float, beta: float, calibrator=None) -> float:
+    """P(Y ≥ s) con Y ~ Beta(α,β) mapeada a 0..100 y calibración opcional."""
+    p = float(_beta.sf(s / 100.0, alpha, beta))  # survival fn
+    if calibrator is not None:
+        p = calibrator(p)
+    return max(1e-8, min(1.0, p))
+
+
+# -------------------- Estimación μ,σ con shrinkage --------------------
+def _estimate_student_mu_sigma(
+    notas_norm: List[float],
+    mu_prior: float,
+    sigma_prior: float,
+    prior_weight: float = 2.0
+) -> Tuple[float, float]:
+    xs = [float(x) for x in (notas_norm or []) if x is not None]
+    k = len(xs)
+    if k == 0:
+        return float(mu_prior), float(sigma_prior)
+    m = float(np.mean(xs))
+    if k >= 2:
+        sd = float(np.std(xs, ddof=1))
+    else:
+        sd = float(sigma_prior)
+    mu_hat = (k * m + prior_weight * mu_prior) / (k + prior_weight)
+    sd_hat = min(25.0, max(6.0, (sd + sigma_prior) / 2.0))
+    return float(mu_hat), float(sd_hat)
+
+
+# -------------------- Grid adaptativo por μ,σ --------------------
+def _adaptive_grid_params(
+    mu: float, sigma: float, is_final_like: bool,
+    default_min: int, final_min: int
+) -> Tuple[int, int, int]:
+    base_min = final_min if is_final_like else default_min
+    k1, k2 = (0.6, 1.2) if is_final_like else (0.8, 1.0)
+    s_min = int(max(base_min, math.floor(mu - k1 * sigma)))
+    s_max = int(min(100, math.ceil(mu + k2 * sigma)))
+    if s_max <= s_min:
+        s_min, s_max = max(base_min, int(mu - 0.5 * sigma)), min(100, int(mu + 0.5 * sigma))
+    if sigma <= 8:
+        step = 2
+    elif sigma <= 15:
+        step = 3
+    else:
+        step = 5
+    return s_min, s_max, step
+
+
+# -------------------- Construcción de evaluaciones --------------------
+def build_evals_trust_with_priors(
+    course_key: str,
+    labels: List[str],
+    secciones: List[Dict[str, Any]],
+    default_min: int = 50,
+    final_min: int = 40,
+    default_step: int = 5
+) -> List[EvalSpec]:
+    evals: List[EvalSpec] = []
+
+    for i, sec in enumerate(secciones):
+        W = float(sec.get("porcentaje", 0.0))  # fracción 0..1
+        m = int(sec.get("num_notas", 0))
+
+        notas_raw = sec.get("notas_obtenidas") or []
+        notas_norm = [normalize_nota(n) for n in notas_raw]
+
+        k = len(notas_norm)
+        pend = max(0, m - k)
+        if m <= 0 or pend <= 0 or W <= 0:
+            continue
+
+        w_item = W / float(m)
+        label = labels[i] if i < len(labels) else f"Sección {i+1}"
+
+        mu0, s0 = get_eval_prior(course_key, label)
+        mu_hat, sigma_hat = _estimate_student_mu_sigma(notas_norm, mu0, s0)
+
+        is_final_like = any(x in label.lower() for x in ["final", "semestral", "examen final"])
+        gmin, gmax, gstep = _adaptive_grid_params(mu_hat, sigma_hat, is_final_like, default_min, final_min)
+
+        for j in range(k, m):
+            idx = j + 1
+            evals.append(EvalSpec(
+                eval_id=f"sec{i+1}_nota{idx}",
+                name=f"{label} - Nota {idx}",
+                weight=w_item, mu=mu_hat, sigma=sigma_hat,
+                s_min=gmin, s_max=gmax, s_step=gstep,
+                course_key=course_key, eval_label=label
+            ))
+
+    return evals
+
+
+# -------------------- Colas calibradas por sección --------------------
+def _precompute_tail_beta(evals: List[EvalSpec]) -> Dict[str, Dict[int, float]]:
+    """eid -> {s: P(Y>=s)} usando Beta(μ,σ) + calibración por sección."""
+    out: Dict[str, Dict[int, float]] = {}
+    calibrators = {e.eval_label: get_calibrator(e.course_key, e.eval_label) for e in evals}
+    for e in evals:
+        a, b = _beta_params_from_mu_sigma(e.mu, e.sigma)
+        cal = calibrators.get(e.eval_label)
+        out[e.eval_id] = {s: _tail_prob_beta(s, a, b, calibrator=cal) for s in e.grid}
+    return out
+
+
+# --- util: cola puntual (incluye 95/100 aunque no estén en el grid) ---
+def _tail_value_for(e: EvalSpec, s: int, pre_tail: Dict[str, Dict[int, float]],
+                    ab_cal: Dict[str, Tuple[float, float, Any]]) -> float:
+    m = pre_tail.get(e.eval_id) or {}
+    if s in m:
+        return m[s]
+    a, b, cal = ab_cal[e.eval_id]
+    return _tail_prob_beta(s, a, b, calibrator=cal)
+
+
+# -------------------- Selección de candidatos --------------------
+def _select_candidates(e: EvalSpec, tail_map: Dict[int, float], diversify: int) -> List[int]:
+    # 1) top por costo/punto
+    def cpp(s: int) -> float:
+        p = max(1e-9, tail_map[s])
+        return (-math.log(p)) / max(1e-9, e.weight * s)
+
+    grid_sorted = sorted(e.grid, key=cpp)
+
+    # 2) cuantiles de cola
+    target_ps = [0.9, 0.75, 0.6, 0.5, 0.4, 0.3, 0.2]
+    by_quantiles: List[int] = []
+    for p in target_ps:
+        best_s = None
+        for s in sorted(e.grid):
+            if tail_map[s] >= p:
+                best_s = s
+                break
+        if best_s is not None:
+            by_quantiles.append(best_s)
+
+    pool = [grid_sorted[i] for i in range(min(diversify, len(grid_sorted)))] \
+         + by_quantiles + [min(e.grid), max(e.grid)]
+
+    out = list(dict.fromkeys(pool))
+    return out[: max(diversify + 2, len(target_ps) + 2)]
+
+
+def _select_candidates_boosted(e: EvalSpec, tail_map: Dict[int, float], diversify: int, *,
+                               supergrid: bool, boost: bool) -> List[int]:
+    """
+    Si 'supergrid' es True, no encajamos 95/100 al grid: los dejamos pasar
+    como metas explícitas (y su prob. se calcula on-the-fly).
+    """
+    base = _select_candidates(e, tail_map, diversify)
+
+    if boost or supergrid:
+        wants = [95, 100]
+        if supergrid:
+            # dejamos 95/100 “tal cual”
+            base.extend(wants)
+        else:
+            # encajar al grid hacia arriba si no existen
+            gset = set(e.grid)
+            for s in wants:
+                if s in gset:
+                    base.append(s)
+                else:
+                    cand = [x for x in e.grid if x >= s]
+                    base.append(cand[0] if cand else max(e.grid))
+        base = list(dict.fromkeys(base))
+
+    return base
+
+
+# -------------------- Beam Search flexible --------------------
+def _beam_search(
+    evals: List[EvalSpec],
+    nota_actual: float,
+    objetivo: float,
+    pre_tail: Dict[str, Dict[int, float]],
+    *,
+    beam_width: int = 64,
+    max_nodes: int = 256,
+    diversify: int = 8,
+    overshoot_penalty: float = 0.25,
+    jitter: float = 1e-4,
+    boost: bool = False,
+    supergrid: bool = False
+) -> List[Dict[str, Any]]:
+    if objetivo <= nota_actual:
+        return [{"targets": {}, "sum_contrib": 0.0, "sum_cost": 0.0, "prod_prob": 1.0}]
+
+    req = objetivo - nota_actual
+    E = sorted(evals, key=lambda e: e.weight, reverse=True)
+
+    # Prepara (α,β, calibrator) por eval para colas on-the-fly
+    calibrators = {e.eval_label: get_calibrator(e.course_key, e.eval_label) for e in E}
+    ab_cal = {e.eval_id: (*_beta_params_from_mu_sigma(e.mu, e.sigma), calibrators.get(e.eval_label)) for e in E}
+
+    beam: List[Tuple[float, float, Dict[str, int]]] = [(0.0, 0.0, {})]
+
+    # Poda por máximos (si supergrid, el máximo es 100)
+    max_rem = [0.0] * (len(E) + 1)
+    for i in range(len(E) - 1, -1, -1):
+        max_s = 100.0 if supergrid else max(E[i].grid)
+        max_rem[i] = max_rem[i + 1] + E[i].weight * max_s
+
+    def feasible(sc: float, level: int) -> bool:
+        return (sc + max_rem[level]) + 1e-9 >= req
+
+    rng = np.random.default_rng(12345)
+
+    for level, e in enumerate(E):
+        new: List[Tuple[float, float, Dict[str, int]]] = []
+        # candidatos (añade 95/100 sin encajar si supergrid)
+        cand = _select_candidates_boosted(e, pre_tail[e.eval_id], diversify, supergrid=supergrid, boost=boost)
+
+        for sc, c, t in beam:
+            for s in cand:
+                sc2 = sc + e.weight * s
+                if not feasible(sc2, level + 1):
+                    continue
+                p_tail = _tail_value_for(e, s, pre_tail, ab_cal)
+                cost = -math.log(max(1e-12, p_tail))
+                if overshoot_penalty > 0:
+                    over = max(0.0, sc2 - req)
+                    if over > 0:
+                        cost *= (1.0 + overshoot_penalty * over / (sc2 + 1e-9))
+                new.append((sc2, c + cost, {**t, e.eval_id: s}))
+
+        if not new:
+            break
+
+        def rank_key(n: Tuple[float, float, Dict[str, int]]):
+            sc2, c2, _ = n
+            gap = max(0.0, req - sc2)
+            over = max(0.0, sc2 - req)
+            j = rng.uniform(-jitter, jitter)
+            return (gap, c2 + overshoot_penalty * over + j, -sc2)
+
+        new.sort(key=rank_key)
+        new = new[:max_nodes]
+        beam = new[:beam_width]
+
+    plans: List[Dict[str, Any]] = []
+    for sc, c, t in beam:
+        if len(t) == len(E) and sc + 1e-9 >= req:
+            plans.append({"targets": t, "sum_contrib": sc, "sum_cost": c, "prod_prob": math.exp(-c)})
+    plans.sort(key=lambda d: (-d["prod_prob"], d["sum_cost"]))
+    return plans
+
+
+# -------------------- MC: Beta con cópula Gaussiana --------------------
+def _samples_beta_copula(evals: List[EvalSpec], N: int = 20000, seed: int = 123, rho: float = 0.35) -> Dict[str, np.ndarray]:
+    """Muestras correlacionadas: mismo Z compartido para todas las evals."""
+    rho = float(np.clip(rho, 0.0, 0.95))
+    rng = np.random.default_rng(seed)
+    Z = rng.standard_normal(size=N).astype(np.float32)  # factor común
+
+    out: Dict[str, np.ndarray] = {}
+    for e in evals:
+        a, b = _beta_params_from_mu_sigma(e.mu, e.sigma)
+        eps = rng.standard_normal(size=N).astype(np.float32)
+        latent = rho * Z + np.sqrt(max(1e-9, 1 - rho**2)) * eps
+        U = norm.cdf(latent)  # vectorizado
+        U = np.clip(U, 1e-6, 1 - 1e-6)
+        Y = _beta.ppf(U, a, b).astype(np.float32) * 100.0
+        out[e.eval_id] = np.clip(Y, 0.0, 100.0)
+    return out
+
+
+def _prob_obj_mc(nota_actual: float, objetivo: float, evals: List[EvalSpec], samples: Dict[str, np.ndarray]) -> float:
+    N = len(next(iter(samples.values())))
+    total = np.full(N, float(nota_actual), dtype=np.float32)
+    for e in evals:
+        total += e.weight * samples[e.eval_id]
+    return float(np.mean(total >= objetivo))
+
+
+def _prob_plan_mc(plan: Dict[str, Any], samples: Dict[str, np.ndarray]) -> float:
+    N = len(next(iter(samples.values())))
+    ok = np.ones(N, dtype=bool)
+    for eid, s in plan["targets"].items():
+        ok &= (samples[eid] >= s)
+        if not ok.any():
+            return 0.0
+    return float(np.mean(ok))
+
+
+# -------------------- Diversidad + etiquetas --------------------
+def _diversity_filter(plans: List[Dict[str, Any]], evals: List[EvalSpec], *, min_l1: int = 18, top: int = 5):
+    selected: List[Dict[str, Any]] = []
+    vecs: List[List[int]] = []
+
+    for p in plans:
+        vec = [p["targets"][e.eval_id] for e in evals]
+        if not vecs or all(sum(abs(a - b) for a, b in zip(vec, v)) >= min_l1 for v in vecs):
+            selected.append(p)
+            vecs.append(vec)
+        if len(selected) >= top:
+            break
+
+    labeled = []
+    for i, p in enumerate(selected):
+        prob = p.get("mc_prob", p.get("prod_prob", 0.0))
+        if i == 0:
+            tag = "Conservador"
+        elif i == 1:
+            tag = "Balanceado"
+        else:
+            tag = "Ambicioso"
+        labeled.append((p, tag, prob))
+    return labeled
+
+
+# -------------------- Orquestador --------------------
+def optimize_auto_backend(
+    secciones: List[Dict[str, Any]],
+    labels: List[str],
+    course_key: str,
+    nota_actual: float,
+    objetivo: float,
+    *,
+    beam_width: int = 64,
+    max_nodes_per_level: int = 256,
+    diversify_per_eval: int = 6,
+    mc_samples: int = 20000,
+    seed: int = 123,
+    default_min: int = 50,
+    final_min: int = 40,
+    default_step: int = 5
+) -> Dict[str, Any]:
+    evals = build_evals_trust_with_priors(
+        course_key, labels, secciones,
+        default_min=default_min, final_min=final_min, default_step=default_step
+    )
+    if not evals:
+        return {"baseline_prob": 0.0, "plans": [], "message": "No hay evaluaciones pendientes."}
+
+    # 1) Imposibilidad teórica (usa 100, no el grid)
+    theoretical_max_pos = nota_actual + sum(e.weight * 100.0 for e in evals)
+    if theoretical_max_pos + 1e-9 < objetivo:
+        return {"baseline_prob": 0.0, "plans": [], "message": "Objetivo inalcanzable aún con máximos teóricos."}
+
+    # 2) Colas calibradas precomputadas (solo grid)
+    tail = _precompute_tail_beta(evals)
+
+    # 3) BEAM — Pase 1 (realista, sin booster ni supergrid)
+    plans = _beam_search(
+        evals, nota_actual, objetivo, tail,
+        beam_width=beam_width,
+        max_nodes=max_nodes_per_level,
+        diversify=diversify_per_eval,
+        overshoot_penalty=0.25,
+        boost=False,
+        supergrid=False
+    )
+
+    # 4) Si no encontró nada pero teóricamente es posible, o si el promedio
+    #    restante requerido supera el máximo del grid → Pase 2 con supergrid.
+    remaining_w = sum(e.weight for e in evals)
+    req_avg = (max(0.0, objetivo - nota_actual) / remaining_w) if remaining_w > 1e-9 else 100.0
+    max_grid_avg = np.average([max(e.grid) for e in evals], weights=[e.weight for e in evals]) if evals else 0.0
+
+    need_supergrid = (req_avg > max_grid_avg + 1e-6)
+    if (not plans) and (theoretical_max_pos + 1e-9 >= objetivo or need_supergrid):
+        plans = _beam_search(
+            evals, nota_actual, objetivo, tail,
+            beam_width=min(beam_width + 32, 160),
+            max_nodes=min(max_nodes_per_level + 256, 768),
+            diversify=min(diversify_per_eval + 3, 14),
+            overshoot_penalty=0.22,   # ligeramente menor para no castigar metas altas necesarias
+            boost=True,
+            supergrid=True           # ⬅ clave: permite 95/100 reales y poda con 100
+        )
+
+    # 5) Monte Carlo correlacionado
+    rho = 0.35
+    samples = _samples_beta_copula(evals, N=mc_samples, seed=seed, rho=rho)
+    baseline = _prob_obj_mc(nota_actual, objetivo, evals, samples)
+
+    # 6) Enriquecer resultados y ordenar por MC
+    enriched: List[Dict[str, Any]] = []
+    for p in plans:
+        mc = _prob_plan_mc(p, samples)
+        details = []
+        for e in evals:
+            s = p["targets"][e.eval_id]
+            # prob de cola coherente con lo que usó el beam (puede ser 95/100 fuera del grid)
+            a, b = _beta_params_from_mu_sigma(e.mu, e.sigma)
+            cal = get_calibrator(e.course_key, e.eval_label)
+            p_tail = _tail_prob_beta(s, a, b, calibrator=cal)
+            details.append({
+                "eval_id": e.eval_id,
+                "name": e.name,
+                "weight": round(e.weight, 4),
+                "mu": round(e.mu, 2),
+                "sigma": round(e.sigma, 2),
+                "target": int(s),
+                "p_tail": round(p_tail, 4),
+                "contrib": round(e.weight * s, 2),
+            })
+        enriched.append({
+            "targets": p["targets"],
+            "sum_contrib": round(p["sum_contrib"], 2),
+            "prod_prob": round(p["prod_prob"], 4),
+            "mc_prob": round(mc, 4),
+            "details": details,
+        })
+    enriched.sort(key=lambda d: d["mc_prob"], reverse=True)
+
+    # 7) Diversidad y etiquetas
+    diverse = _diversity_filter(enriched, evals, min_l1=18, top=5)
+    out_plans: List[Dict[str, Any]] = []
+    for p, tag, _ in diverse:
+        q = dict(p)
+        q["style"] = tag
+        out_plans.append(q)
+
+    return {"baseline_prob": round(baseline, 4), "plans": out_plans}

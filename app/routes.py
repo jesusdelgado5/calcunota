@@ -1,0 +1,454 @@
+# app/routes.py
+from flask import Blueprint, render_template, request, redirect, url_for, session, flash
+from .services import grades
+import re
+from .services.observations import log_observed_score
+from .services.predictions import log_plan_predictions
+from .services.predictions import resolve_predictions_with_new_score
+
+
+
+web_bp = Blueprint("web", __name__)
+
+def is_auth():
+    return bool(session.get("user_id"))
+
+@web_bp.get("/")
+def root():
+    # Opción A: renderizar Home con botón "Calcular"
+    return render_template("home.html", active="home", is_auth=is_auth())
+
+# ✅ dashboard para el botón "Home"
+@web_bp.get("/dashboard")
+def dashboard():
+    return render_template("dashboard.html", active="home", is_auth=is_auth())
+
+# ✅ ajustes para el botón "Ajustes"
+@web_bp.get("/ajustes")
+def ajustes():
+    return render_template("ajustes.html", active="ajustes", is_auth=is_auth())
+
+# ✅ perfil + acciones (los usa el menú Perfil)
+@web_bp.get("/perfil")
+def perfil():
+    return render_template("perfil.html", active="perfil", is_auth=is_auth())
+
+@web_bp.post("/login")
+def login():
+    session["user_id"] = "demo-user-1"
+    flash("Sesión iniciada.", "ok")
+    return redirect(url_for("web.perfil"))
+
+@web_bp.post("/logout")
+def logout():
+    session.pop("user_id", None)
+    flash("Sesión cerrada.", "ok")
+    return redirect(url_for("web.perfil"))
+
+@web_bp.post("/register")
+def register():
+    session["user_id"] = "demo-user-1"
+    flash("Usuario registrado e iniciado.", "ok")
+    return redirect(url_for("web.perfil"))
+
+def slugify(name: str):
+    s = re.sub(r'\s+', '-', name.strip().lower())
+    s = re.sub(r'[^a-z0-9\-]', '', s)
+    return s or "materia"
+
+@web_bp.route("/calcular", methods=["GET", "POST"])
+def calcular():
+    if request.method == "POST":
+        materia = (request.form.get("materia") or "").strip()
+        if not materia:
+            flash("Ingresa el nombre de la materia.", "error")
+            return render_template("calcular.html", active="calcular", is_auth=is_auth())
+        return redirect(url_for("web.configurar_materia", nombre=slugify(materia)))
+    return render_template("calcular.html", active="calcular", is_auth=is_auth())
+
+@web_bp.get("/calcular/<nombre>/configurar")
+def configurar_materia(nombre):
+    return render_template("configurar_materia.html", active="calcular", nombre=nombre, is_auth=is_auth())
+
+@web_bp.post("/calcular/<nombre>/configurar")
+def configurar_materia_post(nombre):
+    """
+    Construye session['materia_actual'] con:
+    - labels: nombres de sección (para UI)
+    - secciones: lista de dicts EXACTAMENTE como tu .py:
+        {'porcentaje': 0..1, 'num_notas': int, 'notas_obtenidas': []}
+    """
+    labels = request.form.getlist("sec_nombre[]")           # p.ej. ["Parciales","Semestral",...]
+    porcentajes = request.form.getlist("sec_porcentaje[]")  # p.ej. ["20","30","50"] o "0.2"...
+    totales = request.form.getlist("sec_num_notas[]")       # p.ej. ["4","1","5"]
+
+    secciones = []
+    labels_clean = []
+    for lbl, p, t in zip(labels, porcentajes, totales):
+        lbl = (lbl or "").strip()
+        if not lbl:
+            continue
+        try:
+            p_val = float(p)
+        except:
+            p_val = 0.0
+        # Conversión a fracción AQUÍ (si teclearon 20, guardamos 0.2)
+        if p_val > 1.0:
+            p_val = p_val / 100.0
+
+        try:
+            t_val = int(t)
+        except:
+            t_val = 0
+
+        secciones.append({
+            "porcentaje": p_val,         # FRACCIÓN 0..1 (como tu .py)
+            "num_notas": t_val,
+            "notas_obtenidas": []        # se llenará en captura
+        })
+        labels_clean.append(lbl)
+
+    if not secciones:
+        flash("Agrega al menos una sección válida.", "error")
+        return redirect(url_for("web.configurar_materia", nombre=nombre))
+
+    session["materia_actual"] = {
+        "nombre": nombre,
+        "labels": labels_clean,   # sólo UI
+        "secciones": secciones,   # <-- lo que consumen tus funciones
+        "objetivo": None
+    }
+    return redirect(url_for("web.captura_secciones", nombre=nombre, idx=0))
+
+@web_bp.get("/materia/<nombre>/captura")
+def captura_secciones(nombre):
+    data = session.get("materia_actual")
+    if not data or data.get("nombre") != nombre:
+        flash("No hay materia en progreso.", "error")
+        return redirect(url_for("web.calcular"))
+
+    idx = max(0, min(int(request.args.get("idx", 0)), len(data["secciones"])-1))
+    return render_template(
+        "captura.html",
+        active="calcular",
+        nombre=nombre,
+        idx=idx,
+        label=data["labels"][idx],
+        secciones=data["secciones"],
+        labels=data["labels"],
+        is_auth=is_auth()
+    )
+
+@web_bp.post("/materia/<nombre>/captura")
+def captura_secciones_post(nombre):
+    data = session.get("materia_actual")
+    if not data or data.get("nombre") != nombre:
+        flash("No hay materia en progreso.", "error")
+        return redirect(url_for("web.calcular"))
+
+    secciones = data["secciones"]
+    labels = data["labels"]
+    idx = max(0, min(int(request.form.get("idx", 0)), len(secciones)-1))
+
+    # 1) Actualiza el total
+    try:
+        total = int(request.form.get("total", secciones[idx]["num_notas"] or 0))
+    except:
+        total = secciones[idx]["num_notas"] or 0
+    total = max(0, total)
+    old_notas = list(secciones[idx].get("notas_obtenidas", []))
+
+
+    # 2) Lee todas las notas ingresadas en el popup (dentro del form)
+    #    Nuevo formato: pares (score/base)
+    scores_in = request.form.getlist("notas_score[]")
+    bases_in  = request.form.getlist("notas_base[]")
+
+    notas_vals = []
+    if scores_in or bases_in:
+        # usar el nuevo formato
+        for sc, bs in zip(scores_in, bases_in):
+            sc = (sc or "").strip()
+            bs = (bs or "").strip()
+            if sc != "":
+                try:
+                    scf = float(sc)
+                except:
+                    scf = 0.0
+                try:
+                    bsf = float(bs) if bs != "" else 100.0
+                except:
+                    bsf = 100.0
+                if bsf <= 0:
+                    bsf = 100.0
+                notas_vals.append({"score": scf, "base": bsf})
+    else:
+        # fallback: compatibilidad con el viejo formato "notas[]"
+        for v in request.form.getlist("notas[]"):
+            v = (v or "").strip()
+            if v != "":
+                try:
+                    notas_vals.append({"score": float(v), "base": 100.0})
+                except:
+                    notas_vals.append({"score": 0.0, "base": 100.0})
+
+    # recorta si excede el total
+    if total > 0 and len(notas_vals) > total:
+        notas_vals = notas_vals[:total]
+
+    secciones[idx]["num_notas"] = total
+    secciones[idx]["notas_obtenidas"] = notas_vals
+
+    # 3) Persistir en sesión
+    session["materia_actual"]["secciones"] = secciones
+    session.modified = True
+
+    # 4) *** registra SOLO las notas NUEVAS como observadas ***
+    from .services.grades import normalize_nota  # importa aquí para evitar ciclos
+    old_len = len(old_notas)
+    new_len = len(notas_vals)
+    if new_len > old_len:
+        course_key = nombre
+        eval_label = labels[idx]
+        for k in range(old_len, new_len):
+            try:
+                s_val_norm = normalize_nota(notas_vals[k])  # 0..100
+                log_observed_score(course_key, eval_label, s_val_norm)
+                resolve_predictions_with_new_score(course_key, eval_label, s_val_norm)
+            except Exception as e:
+                print("log_observed_score error:", e)
+
+
+    # 4) Navegación
+    action = request.form.get("action", "siguiente")
+    if action == "anterior" and idx > 0:
+        return redirect(url_for("web.captura_secciones", nombre=nombre, idx=idx-1))
+    elif action in ("siguiente", "continuar") and idx < len(secciones)-1:
+        return redirect(url_for("web.captura_secciones", nombre=nombre, idx=idx+1))
+    else:
+        return redirect(url_for("web.resumen_materia", nombre=nombre))
+
+
+@web_bp.get("/materia/<nombre>/resumen")
+def resumen_materia(nombre):
+    data = session.get("materia_actual")
+    if not data or data.get("nombre") != nombre:
+        flash("No hay materia en progreso.", "error")
+        return redirect(url_for("web.calcular"))
+
+    secs = data["secciones"]
+    labels = data["labels"]
+    completo = all(s["num_notas"] >= len(s["notas_obtenidas"]) for s in secs)
+    return render_template(
+        "resumen.html",
+        active="calcular",
+        nombre=nombre,
+        secciones=secs,
+        labels=labels,
+        completo=completo,
+        is_auth=is_auth()
+    )
+
+@web_bp.post("/materia/<nombre>/calcular")
+def materia_calcular(nombre):
+    data = session.get("materia_actual")
+    if not data or data.get("nombre") != nombre:
+        flash("No hay materia en progreso.", "error")
+        return redirect(url_for("web.calcular"))
+
+    objetivo = request.form.get("objetivo")
+    objetivo_val = float(objetivo) if objetivo else None
+
+    # Aquí consumimos EXACTAMENTE la misma estructura que tu .py
+    resultado = grades.resumen_desde_secciones(data["secciones"], objetivo_val)
+
+    # (Opcional) Aquí disparas tu TRANSACCIÓN externa (DB) con data["secciones"] + resultado
+    # if request.form.get("guardar") == "1":
+    #     guardar_en_db(data["nombre"], data["labels"], data["secciones"], resultado)
+
+    return render_template(
+        "resultado.html",
+        active="calcular",
+        nombre=nombre,
+        resultado=resultado,
+        is_auth=is_auth()
+    )
+
+# --- NUEVO: Optimización con Beam + MC ---
+from .services.grades import calcular_nota_actual  # ya lo tienes
+from .services.optimizer_beam import optimize_from_secciones, build_evals_from_secciones
+
+@web_bp.get("/materia/<nombre>/planes")
+def materia_planes(nombre):
+    data = session.get("materia_actual")
+    if not data or data.get("nombre") != nombre:
+        flash("No hay materia en progreso.", "error")
+        return redirect(url_for("web.calcular"))
+
+    secciones = data["secciones"]
+    labels = data["labels"]
+    # Pre-calcular nota actual y evals prefill (para mostrar μ, σ y grids)
+    nota_actual = calcular_nota_actual(secciones)
+    evals_preview = build_evals_from_secciones(secciones, labels)
+
+    # objetivo prellenado si ya se usó antes
+    objetivo = data.get("objetivo") or ""
+
+    return render_template(
+        "planes_beam.html",
+        active="calcular",
+        nombre=nombre,
+        nota_actual=round(nota_actual, 2),
+        objetivo=objetivo,
+        evals=evals_preview,  # para pintar filas con defaults
+        is_auth=is_auth(),
+        result=None,
+        error=None
+    )
+
+@web_bp.post("/materia/<nombre>/planes")
+def materia_planes_post(nombre):
+    data = session.get("materia_actual")
+    if not data or data.get("nombre") != nombre:
+        flash("No hay materia en progreso.", "error")
+        return redirect(url_for("web.calcular"))
+
+    secciones = data["secciones"]
+    labels = data["labels"]
+    nota_actual = calcular_nota_actual(secciones)
+
+    try:
+        objetivo = float(request.form.get("objetivo", "").strip())
+    except:
+        objetivo = None
+
+    if objetivo is None:
+        flash("Debes indicar un objetivo de nota final.", "error")
+        return redirect(url_for("web.materia_planes", nombre=nombre))
+
+    # guarda el objetivo en sesión para reusar
+    session["materia_actual"]["objetivo"] = objetivo
+    session.modified = True
+
+    # lee hiperparámetros
+    beam_width = int(request.form.get("beam_width", 64))
+    max_nodes = int(request.form.get("max_nodes_per_level", 256))
+    diversify = int(request.form.get("diversify_per_eval", 6))
+    mc_samples = int(request.form.get("mc_samples", 20000))
+
+    # Recontruye evals desde secciones y aplica overrides del formulario (μ,σ, grid)
+    evals_objs = build_evals_from_secciones(secciones, labels)
+    # Map para sobrescribir
+    form_ids = request.form.getlist("eval_id[]")
+    form_mu = request.form.getlist("mu[]")
+    form_sigma = request.form.getlist("sigma[]")
+    form_min = request.form.getlist("s_min[]")
+    form_max = request.form.getlist("s_max[]")
+    form_step = request.form.getlist("s_step[]")
+
+    overrides = {eid: i for i, eid in enumerate(form_ids)}
+    for e in evals_objs:
+        if e.eval_id in overrides:
+            i = overrides[e.eval_id]
+            try:
+                e.mu = float(form_mu[i])
+                e.sigma = float(form_sigma[i])
+                e.s_min = int(form_min[i])
+                e.s_max = int(form_max[i])
+                e.s_step = max(1, int(form_step[i]))
+            except Exception:
+                pass  # deja los defaults si hay error de parseo
+
+    # Ejecuta optimización
+    result = optimize_from_secciones(
+        secciones=secciones,
+        labels=labels,
+        nota_actual=nota_actual,
+        objetivo=float(objetivo),
+        beam_width=beam_width,
+        max_nodes_per_level=max_nodes,
+        diversify_per_eval=diversify,
+        mc_samples=mc_samples,
+        seed=123
+    )
+
+    return render_template(
+        "planes_beam.html",
+        active="calcular",
+        nombre=nombre,
+        nota_actual=round(nota_actual, 2),
+        objetivo=objetivo,
+        evals=evals_objs,
+        is_auth=is_auth(),
+        result=result,
+        error=None
+    )
+
+# --- NUEVO: Optimización automática (sin hiperparámetros en UI) ---
+from .services.grades import calcular_nota_actual
+from .services.optimizer_beam_auto import optimize_auto_backend
+
+@web_bp.get("/materia/<nombre>/planes-auto")
+def materia_planes_auto(nombre):
+    data = session.get("materia_actual")
+    if not data or data.get("nombre") != nombre:
+        flash("No hay materia en progreso.", "error")
+        return redirect(url_for("web.calcular"))
+
+    nota_actual = calcular_nota_actual(data["secciones"])
+    return render_template(
+        "planes_beam_auto.html",
+        active="calcular",
+        nombre=nombre,
+        nota_actual=round(nota_actual,2),
+        objetivo=data.get("objetivo") or "",
+        result=None,
+        is_auth=is_auth()
+    )
+
+from .services.grades import calcular_nota_actual
+from .services.optimizer_beam_auto import optimize_auto_backend
+
+@web_bp.post("/materia/<nombre>/planes-auto")
+def materia_planes_auto_post(nombre):
+    data = session.get("materia_actual")
+    if not data or data.get("nombre") != nombre:
+        flash("No hay materia en progreso.", "error")
+        return redirect(url_for("web.calcular"))
+    try:
+        objetivo = float((request.form.get("objetivo") or "").strip())
+    except:
+        flash("Objetivo inválido.", "error")
+        return redirect(url_for("web.materia_planes_auto", nombre=nombre))
+
+    session["materia_actual"]["objetivo"] = objetivo
+    session.modified = True
+
+    secciones = data["secciones"]
+    labels = data["labels"]
+    nota_actual = calcular_nota_actual(secciones)
+
+    res = optimize_auto_backend(
+        secciones=secciones,
+        labels=labels,
+        course_key=nombre,          # 💡 usamos tu slug como course_key
+        nota_actual=nota_actual,
+        objetivo=objetivo
+    )
+    
+    try:
+        for p in (res.get("plans") or [])[:3]:
+            style = p.get("style") or ""  # Conservador/Balanceado/Ambicioso si lo devuelves
+            log_plan_predictions(course_key=nombre, plan_style=style, details=p["details"])
+    except Exception as e:
+        print("log_plan_predictions error:", e)
+    
+    return render_template(
+        "planes_beam_auto.html",
+        active="calcular",
+        nombre=nombre,
+        nota_actual=round(nota_actual,2),
+        objetivo=objetivo,
+        result=res,
+        is_auth=is_auth()
+    )

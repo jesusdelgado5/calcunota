@@ -1,0 +1,143 @@
+{% extends "base.html" %} {% block title %}CalcuNota · Planes (automático){%
+endblock %} {% block content %}
+<div class="max-w-4xl">
+  <h1 class="text-xl font-semibold text-slate-900">
+    Planes de notas (automático)
+  </h1>
+  <p class="text-slate-600 mt-1">
+    Fija tu objetivo final y genera combinaciones con su probabilidad de éxito.
+  </p>
+
+  <div class="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+    <div class="text-sm text-slate-600">
+      Materia: <span class="font-medium text-slate-900">{{ nombre }}</span> ·
+      Nota actual:
+      <span class="font-medium text-slate-900">{{ nota_actual }}</span>
+    </div>
+    <form method="post" class="mt-3 flex items-end gap-3">
+      <label class="text-sm text-slate-700"
+        >Objetivo de nota final
+        <input
+          name="objetivo"
+          type="number"
+          step="0.1"
+          min="0"
+          max="100"
+          required
+          value="{{ objetivo or '' }}"
+          class="mt-1 rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
+      </label>
+      <button
+        class="rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-4 py-2"
+        type="submit"
+      >
+        Calcular planes
+      </button>
+      <a
+        class="text-slate-600 hover:text-slate-900 ml-auto"
+        href="{{ url_for('web.resumen_materia', nombre=nombre) }}"
+        >Volver</a
+      >
+    </form>
+  </div>
+
+  <div class="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+    <h2 class="font-semibold text-slate-900">Resultados</h2>
+
+    {% if error %}
+    <div
+      class="mt-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 px-3 py-2 text-sm"
+    >
+      {{ error }}
+    </div>
+    {% elif result %} {% if result.message %}
+    <p class="mt-1 text-sm text-slate-600">{{ result.message }}</p>
+    {% endif %}
+
+    <div class="mt-3 text-sm text-slate-700">
+      Probabilidad base de alcanzar el objetivo:
+      <span
+        class="font-bold {% if result.baseline_prob>=0.8 %} text-emerald-700 {% elif result.baseline_prob>=0.5 %} text-amber-700 {% else %} text-slate-900 {% endif %}"
+      >
+        {{ (result.baseline_prob*100)|round(1) }}%
+      </span>
+    </div>
+
+    {% if result.plans and result.plans|length>0 %}
+    <div class="mt-3 grid gap-3">
+      {% for p in result.plans[:5] %}
+      <div class="rounded-xl border border-slate-200 bg-white p-4">
+        <div class="flex flex-wrap items-end gap-4 justify-between">
+          <div>
+            <div class="text-xs text-slate-500">Probabilidad (Monte Carlo)</div>
+            <div class="text-2xl font-bold">
+              {{ (p.mc_prob*100)|round(1) }}%
+            </div>
+            <div class="text-xs text-slate-500">
+              Aprox indep: {{ (p.prod_prob*100)|round(1) }}%
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="text-xs text-slate-500">
+              Aporte si cumples todas las metas
+            </div>
+            <div class="text-xl font-semibold text-slate-900">
+              +{{ p.sum_contrib }} pts
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-3 overflow-x-auto">
+          <table class="min-w-full text-sm">
+            <thead class="bg-slate-50">
+              <tr>
+                <th class="text-left px-3 py-2">Evaluación</th>
+                <th class="text-left px-3 py-2">Meta</th>
+                <th class="text-left px-3 py-2">Peso</th>
+                <th class="text-left px-3 py-2">Aporta</th>
+                <th class="text-left px-3 py-2">μ</th>
+                <th class="text-left px-3 py-2">σ</th>
+                <th class="text-left px-3 py-2">P(Y≥s)</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              {% for d in p.details %}
+              <tr>
+                <td class="px-3 py-2">{{ d.name }}</td>
+                <td class="px-3 py-2 font-mono">{{ d.target }}</td>
+                <td class="px-3 py-2 font-mono">
+                  {{ '%.2f'|format(d.weight) }}
+                </td>
+                <td class="px-3 py-2 font-mono">
+                  {{ '%.1f'|format(d.contrib) }}
+                </td>
+                <td class="px-3 py-2 font-mono text-slate-500">
+                  {{ '%.1f'|format(d.mu) }}
+                </td>
+                <td class="px-3 py-2 font-mono text-slate-500">
+                  {{ '%.1f'|format(d.sigma) }}
+                </td>
+                <td class="px-3 py-2 font-mono text-slate-500">
+                  {{ '%.1f'|format(d.p_tail*100) }}%
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="mt-2 text-sm text-slate-600">
+      No se generaron planes con los parámetros actuales.
+    </p>
+    {% endif %} {% else %}
+    <p class="text-sm text-slate-600">
+      Introduce el objetivo y presiona <strong>Calcular planes</strong>.
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

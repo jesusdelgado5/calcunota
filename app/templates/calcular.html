@@ -1,0 +1,37 @@
+{% extends "base.html" %} {% block title %}Nueva materia — CalcuNota{% endblock
+%} {% block content %}
+<div class="max-w-xl">
+  <h1 class="text-xl font-semibold text-slate-900">Crear materia</h1>
+  <p class="text-slate-600 mt-1">
+    Dale un nombre para configurar secciones de evaluación.
+  </p>
+
+  <form
+    method="post"
+    action="{{ url_for('web.calcular') }}"
+    class="mt-4 grid gap-3"
+  >
+    <label class="text-sm text-slate-700">Nombre de la materia</label>
+    <input
+      name="materia"
+      type="text"
+      placeholder="Ej. Física I"
+      class="rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
+    />
+
+    <div class="flex items-center gap-3">
+      <button
+        class="rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-4 py-2"
+        type="submit"
+      >
+        Continuar
+      </button>
+      <a
+        href="{{ url_for('web.dashboard') }}"
+        class="text-slate-600 hover:text-slate-900"
+        >Cancelar</a
+      >
+    </div>
+  </form>
+</div>
+{% endblock %}

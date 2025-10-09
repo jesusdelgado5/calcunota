@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}Captura — {{ nombre }}{% endblock %}
+{% block content %}
+<div class="max-w-4xl">
+  <div class="mb-4">
+    <div class="flex items-center justify-between text-sm text-slate-600">
+      <div>Sección {{ idx+1 }} de {{ secciones|length }}: <span class="font-medium text-slate-900">{{ label }}</span></div>
+      <div>{{ nombre }}</div>
+    </div>
+    <div class="mt-2 h-2 rounded-full bg-slate-200 overflow-hidden">
+      <div class="h-full bg-brand-600" style="width: {{ ((idx+1)/secciones|length*100)|round(2) }}%;"></div>
+    </div>
+  </div>
+
+  <form id="form-captura" method="post" action="{{ url_for('web.captura_secciones_post', nombre=nombre) }}" class="grid gap-4">
+    <input type="hidden" name="idx" value="{{ idx }}">
+
+    <div class="rounded-xl border border-slate-200 bg-white p-4">
+      <div class="grid sm:grid-cols-12 gap-3">
+        <div class="sm:col-span-4">
+          <label class="text-sm text-slate-700">Total de elementos</label>
+          <input type="number" name="total" value="{{ secciones[idx].num_notas or 0 }}" min="0"
+                 class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500">
+        </div>
+        <div class="sm:col-span-8 flex items-end">
+          <button type="button" id="btn-notas"
+                  class="rounded-lg border border-slate-300 px-3 py-2 hover:bg-slate-50">
+            Ingresar / editar notas realizadas…
+          </button>
+        </div>
+      </div>
+
+      <div class="mt-4 text-sm text-slate-600">
+        <strong>Notas guardadas:</strong>
+        {% set notas = secciones[idx].notas_obtenidas %}
+        {% if notas and notas|length>0 %}
+          {% for n in notas %}
+            {% if n is mapping %}
+              {{ n.score|round(2) }}/{{ (n.base or 100)|round(2) }}{% if not loop.last %}, {% endif %}
+            {% else %}
+              {{ n|round(2) }}/100{% if not loop.last %}, {% endif %}
+            {% endif %}
+          {% endfor %}
+        {% else %}
+          <span class="text-slate-500">—</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <button class="rounded-lg border border-slate-300 px-3 py-2 hover:bg-slate-50" name="action" value="anterior" type="submit" {% if idx==0 %}disabled{% endif %}>Anterior</button>
+      <button class="rounded-lg border border-slate-300 px-3 py-2 hover:bg-slate-50" name="action" value="siguiente" type="submit">Siguiente</button>
+      <button class="rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-4 py-2" name="action" value="terminar" type="submit">Terminar</button>
+      <a class="ml-auto text-slate-600 hover:text-slate-900" href="{{ url_for('web.resumen_materia', nombre=nombre) }}">Ir al resumen</a>
+    </div>
+
+    <!-- Modal Notas -->
+    <div id="popup" class="hidden fixed inset-0 bg-black/40 grid place-items-center p-4">
+      <div class="bg-white w-full max-w-2xl rounded-2xl p-4 shadow-xl">
+        <h3 class="text-lg font-semibold">Notas realizadas — {{ label }}</h3>
+        <p class="text-sm text-slate-600 mb-2">Formato: <strong>obtenida / base</strong> (por defecto base=100).</p>
+        <div id="popup-body" class="max-h-[50vh] overflow-auto grid gap-2"></div>
+        <div class="flex items-center justify-end gap-2 mt-3">
+          <button type="button" id="cancel-popup" class="rounded-lg border border-slate-300 px-3 py-2 hover:bg-slate-50">Cancelar</button>
+          <button type="button" id="confirm-popup" class="rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-4 py-2" disabled>Confirmar</button>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <div class="mt-6 rounded-xl border border-slate-200 bg-white p-4">
+    <h3 class="font-medium text-slate-900 mb-2">Progreso general</h3>
+    <div class="divide-y divide-slate-100">
+      {% for s in secciones %}
+        <div class="py-2 flex items-center gap-3">
+          <div class="w-8 text-slate-500">{{ loop.index }}.</div>
+          <div class="flex-1">
+            <div class="text-sm font-medium text-slate-900">{{ labels[loop.index0] }}</div>
+            <div class="text-xs text-slate-600">total: {{ s.num_notas }} · realizados: {{ s.notas_obtenidas|length }}</div>
+          </div>
+          <div class="text-sm text-slate-600 truncate">
+            {% if s.notas_obtenidas and s.notas_obtenidas|length>0 %}
+              {% for n in s.notas_obtenidas %}
+                {% if n is mapping %}
+                  {{ n.score|round(2) }}/{{ (n.base or 100)|round(2) }}{% if not loop.last %}, {% endif %}
+                {% else %}
+                  {{ n|round(2) }}/100{% if not loop.last %}, {% endif %}
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              —
+            {% endif %}
+          </div>
+          <a class="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 hover:bg-slate-50 ml-2"
+             href="{{ url_for('web.captura_secciones', nombre=nombre, idx=loop.index0) }}">Editar</a>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{% block body_extra %}
+<script>
+  const form = document.getElementById('form-captura');
+  const btnNotas = document.getElementById('btn-notas');
+  const popup = document.getElementById('popup');
+  const body = document.getElementById('popup-body');
+  const confirmBtn = document.getElementById('confirm-popup');
+  const cancelBtn = document.getElementById('cancel-popup');
+
+  function openPopup(){
+    const total = parseInt(form.total.value || '0', 10);
+    const prev = {{ secciones[idx].notas_obtenidas|tojson }};
+
+    body.innerHTML = '';
+
+    // Dibuja filas existentes (hasta 'total')
+    let initialCount = 0;
+    if (Array.isArray(prev) && prev.length > 0) {
+      const n = Math.min(prev.length, total);
+      for (let i=0; i<n; i++){
+        let score = '';
+        let base  = 100;
+        if (typeof prev[i] === 'number') {
+          score = prev[i];
+          base  = 100;
+        } else if (prev[i]) {
+          score = (prev[i].score ?? '');
+          base  = (prev[i].base  ?? 100);
+        }
+        appendRow(score, base);
+        initialCount++;
+      }
+    }
+    // Si no había nada, agrega una fila inicial si total>0
+    if (initialCount === 0 && total > 0) {
+      appendRow('', 100);
+      initialCount = 1;
+    }
+
+    // Controles agregar/quitar con id fijo
+    const controls = document.createElement('div');
+    controls.id = 'note-controls';
+    controls.className = "flex items-center gap-2 mt-2";
+    controls.innerHTML = `
+      <button type="button" id="add-note" class="rounded-lg border border-slate-300 px-3 py-1.5 hover:bg-slate-50">+ Agregar nota</button>
+      <button type="button" id="rm-note"  class="rounded-lg border border-slate-300 px-3 py-1.5 hover:bg-slate-50">– Quitar última</button>
+      <span class="text-xs text-slate-500 ml-auto">Máx: <span id="max-total">${total}</span></span>
+    `;
+    body.appendChild(controls);
+
+    // Handlers
+    controls.querySelector('#add-note').addEventListener('click', ()=>{
+      const count = body.querySelectorAll('.nota-pair').length;
+      const limit = parseInt(document.getElementById('max-total').textContent || '0', 10);
+      if (count < limit) {
+        appendRow('', 100);
+        renumberRows();
+        validate();
+      }
+    });
+
+    controls.querySelector('#rm-note').addEventListener('click', ()=>{
+      const rows = body.querySelectorAll('.nota-pair');
+      if (rows.length > 0) {
+        rows[rows.length - 1].remove();
+        renumberRows();
+        validate();
+      }
+    });
+
+    validate();
+    popup.classList.remove('hidden');
+  }
+
+  function appendRow(scoreVal, baseVal){
+    const row = document.createElement('div');
+    row.className = "nota-pair";
+    row.innerHTML = `
+      <label class="block">
+        <span class="text-sm text-slate-700 nota-label"></span>
+        <div class="mt-1 flex items-center gap-2">
+          <input type="number" step="0.01" min="0" name="notas_score[]"
+                 value="${scoreVal ?? ''}"
+                 class="w-28 rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <span class="text-slate-500">/</span>
+          <input type="number" step="0.01" min="0.01" name="notas_base[]"
+                 value="${baseVal ?? 100}"
+                 class="w-24 rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+      </label>`;
+    // Inserta siempre ANTES del bloque de controles si existe
+    const controls = document.getElementById('note-controls');
+    if (controls) {
+      body.insertBefore(row, controls);
+    } else {
+      body.appendChild(row);
+    }
+    renumberRows();
+  }
+
+  function renumberRows(){
+    const labels = body.querySelectorAll('.nota-pair .nota-label');
+    labels.forEach((el, i) => el.textContent = `Nota #${i+1}`);
+  }
+
+  function closePopup(){ popup.classList.add('hidden'); }
+
+  function validate(){
+    const pairs = body.querySelectorAll('.nota-pair');
+    let ok = pairs.length > 0;
+    pairs.forEach(p=>{
+      const sc = p.querySelector('input[name="notas_score[]"]');
+      const bs = p.querySelector('input[name="notas_base[]"]');
+      const scv = (sc.value || '').trim();
+      const bsv = parseFloat(bs.value || '100');
+      if (scv === '' || isNaN(bsv) || bsv <= 0) ok = false;
+    });
+    confirmBtn.disabled = !ok;
+  }
+
+  btnNotas?.addEventListener('click', openPopup);
+  cancelBtn?.addEventListener('click', closePopup);
+  body.addEventListener('input', validate);
+  confirmBtn.addEventListener('click', closePopup);
+</script>
+{% endblock %}
+{% endblock %}
+

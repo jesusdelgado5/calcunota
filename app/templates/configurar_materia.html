@@ -1,0 +1,166 @@
+{% extends "base.html" %} {% block title %}Configurar {{ nombre }} — CalcuNota{%
+endblock %} {% block content %}
+<div class="max-w-3xl">
+  <div class="flex items-center justify-between">
+    <h1 class="text-xl font-semibold text-slate-900">
+      Configurar: {{ nombre }}
+    </h1>
+    <div class="text-sm">
+      <span class="text-slate-600">Porcentaje total:</span>
+      <span id="sumPct" class="font-semibold">0%</span>
+    </div>
+  </div>
+  <p class="text-slate-600 mt-1">
+    Añade secciones (ej. Parciales, Talleres, Semestral), su porcentaje y
+    cuántas notas tendrá cada sección.
+  </p>
+
+  <form
+    method="post"
+    action="{{ url_for('web.configurar_materia_post', nombre=nombre) }}"
+    class="mt-4"
+  >
+    <div id="rows" class="grid gap-3"></div>
+
+    <div class="flex items-center gap-3 mt-4">
+      <button
+        type="button"
+        id="add-row"
+        class="rounded-lg border border-slate-300 px-3 py-2 hover:bg-slate-50"
+      >
+        Añadir sección
+      </button>
+
+      <!-- Botón submit que vamos a habilitar / deshabilitar -->
+      <button
+        id="btn-submit"
+        class="rounded-lg px-4 py-2 bg-slate-200 text-slate-500 cursor-not-allowed"
+        type="submit"
+        disabled
+      >
+        Continuar
+      </button>
+
+      <span id="pctWarn" class="text-sm text-amber-600 hidden"
+        >Sugerencia: la suma ideal es 100%.</span
+      >
+    </div>
+
+    <div class="mt-4 text-xs text-slate-500">
+      <label class="inline-flex items-center gap-2">
+        <input type="checkbox" checked class="rounded border-slate-300" />
+        Autorizo que mis datos se usen de forma anónima para mejorar las
+        probabilidades y planes.
+      </label>
+    </div>
+  </form>
+</div>
+
+{% block body_extra %}
+<script>
+  const rows = document.getElementById("rows");
+  const add = document.getElementById("add-row");
+  const sumPctEl = document.getElementById("sumPct");
+  const pctWarn = document.getElementById("pctWarn");
+  const submitBtn = document.getElementById("btn-submit");
+
+  function updateSum() {
+    const inputs = rows.querySelectorAll('input[name="sec_porcentaje[]"]');
+    let sum = 0;
+    inputs.forEach((i) => {
+      const v = parseFloat(i.value || "0");
+      sum += isNaN(v) ? 0 : v;
+    });
+    sumPctEl.textContent = `${sum.toFixed(1)}%`;
+    sumPctEl.className =
+      "font-semibold " +
+      (Math.abs(sum - 100) < 0.01 ? "text-emerald-700" : "text-amber-700");
+    pctWarn.classList.toggle("hidden", Math.abs(sum - 100) < 0.01);
+  }
+
+  // Habilita/deshabilita el botón en función de la suma
+  function enforce100() {
+    const text = sumPctEl.textContent || "0%";
+    const val = parseFloat(text.replace("%", "")) || 0;
+    const ok = Math.abs(val - 100) < 0.01;
+
+    submitBtn.disabled = !ok;
+    // quita clases de ambos estados para evitar acumulación
+    submitBtn.classList.remove(
+      "bg-slate-200",
+      "text-slate-500",
+      "cursor-not-allowed",
+      "bg-brand-600",
+      "hover:bg-brand-700",
+      "text-white"
+    );
+    if (ok) {
+      submitBtn.classList.add(
+        "bg-brand-600",
+        "hover:bg-brand-700",
+        "text-white"
+      );
+    } else {
+      submitBtn.classList.add(
+        "bg-slate-200",
+        "text-slate-500",
+        "cursor-not-allowed"
+      );
+    }
+  }
+
+  function row() {
+    const d = document.createElement("div");
+    d.className = "rounded-xl border border-slate-200 bg-white p-3";
+    d.innerHTML = `
+      <div class="grid sm:grid-cols-12 gap-3">
+        <div class="sm:col-span-4">
+          <label class="text-sm text-slate-700">Nombre sección</label>
+          <input name="sec_nombre[]" type="text" placeholder="Parciales"
+                 class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500">
+        </div>
+        <div class="sm:col-span-4">
+          <label class="text-sm text-slate-700">Porcentaje (%)</label>
+          <input name="sec_porcentaje[]" type="number" step="0.1" min="0" max="100" placeholder="20"
+                 class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500 pct">
+        </div>
+        <div class="sm:col-span-3">
+          <label class="text-sm text-slate-700"># de notas (total)</label>
+          <input name="sec_num_notas[]" type="number" min="0" step="1" placeholder="4"
+                 class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500">
+        </div>
+        <div class="sm:col-span-1 flex items-end">
+          <button type="button" class="w-full rounded-lg border border-slate-300 px-3 py-2 hover:bg-rose-50 text-rose-700 btn-del">✕</button>
+        </div>
+      </div>`;
+    d.querySelector(".btn-del").addEventListener("click", () => {
+      d.remove();
+      updateSum();
+      enforce100();
+    });
+    d.querySelector(".pct").addEventListener("input", () => {
+      updateSum();
+      enforce100();
+    });
+    return d;
+  }
+
+  add.addEventListener("click", () => {
+    rows.appendChild(row());
+    enforce100();
+  });
+
+  // arranca con 1 fila
+  rows.appendChild(row());
+  // estado inicial
+  updateSum();
+  enforce100();
+
+  // si quieres recalcular no sólo cuando cambie el %,
+  // puedes escuchar input global en todo el contenedor:
+  rows.addEventListener("input", () => {
+    updateSum();
+    enforce100();
+  });
+</script>
+{% endblock %} {% endblock %}

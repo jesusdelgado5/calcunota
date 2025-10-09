@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Calculadora de Nota — Base</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        font-family: system-ui, Segoe UI, Roboto, Arial, sans-serif;
+        max-width: 900px;
+        margin: 24px auto;
+        padding: 0 16px;
+        line-height: 1.4;
+      }
+      textarea {
+        width: 100%;
+        min-height: 200px;
+      }
+      input,
+      button {
+        font-size: 16px;
+        padding: 8px;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .card {
+        border: 1px solid #ddd;
+        border-radius: 12px;
+        padding: 16px;
+        margin-top: 16px;
+      }
+      pre {
+        background: #f7f7f7;
+        padding: 12px;
+        border-radius: 8px;
+        overflow: auto;
+      }
+      .muted {
+        color: #666;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Calculadora de Nota — Base</h1>
+    <p class="muted">
+      Pega tus <strong>secciones</strong> en JSON y (opcional) un objetivo.
+      Puedes usar /api/calc si prefieres hacer fetch desde front.
+    </p>
+
+    <form method="post" action="/preview">
+      <label for="json"><strong>JSON (secciones):</strong></label>
+      <textarea
+        id="json"
+        name="json"
+        placeholder='{"secciones":[{"porcentaje":20,"num_notas":4,"notas_obtenidas":[80,90]},{"porcentaje":30,"num_notas":3,"notas_obtenidas":[70]},{"porcentaje":50,"num_notas":5,"notas_obtenidas":[]}]}'
+      >
+{{ raw if raw else "" }}</textarea
+      >
+
+      <div class="row" style="margin-top: 8px">
+        <label
+          >Objetivo final (0..100): <input type="number" step="0.01"
+          name="objetivo" value="{{ objetivo if objetivo else "" }}">
+        </label>
+        <button type="submit">Calcular</button>
+      </div>
+    </form>
+
+    {% if ok is not none %}
+    <div class="card">
+      {% if ok %}
+      <h3>Resultado</h3>
+      <pre>{{ resultado | tojson(indent=2) }}</pre>
+      <p class="muted">
+        nota_actual está en escala 0..100. porcentaje_restante es fracción (ej.
+        0.35 ⇒ 35%).
+      </p>
+      {% else %}
+      <h3>Error</h3>
+      <pre>{{ error }}</pre>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <details>
+        <summary>Ejemplo rápido</summary>
+        <pre>
+{
+  "secciones": [
+    {"porcentaje": 20, "num_notas": 4, "notas_obtenidas": [80, 90]},
+    {"porcentaje": 30, "num_notas": 3, "notas_obtenidas": [70]},
+    {"porcentaje": 50, "num_notas": 5, "notas_obtenidas": []}
+  ],
+  "objetivo": 81
+}</pre
+        >
+      </details>
+    </div>
+  </body>
+</html>
