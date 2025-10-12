@@ -1,6 +1,3 @@
-# `/README.md` (raíz del repositorio)
-
-
 # CalcuNota — Documentación de Arquitectura y Operación
 
 CalcuNota estima tu **nota final** y genera **planes de estudio** con probabilidades realistas de éxito.  
