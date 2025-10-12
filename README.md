@@ -1,6 +1,6 @@
 # `/README.md` (raíz del repositorio)
 
-```markdown
+
 # CalcuNota — Documentación de Arquitectura y Operación
 
 CalcuNota estima tu **nota final** y genera **planes de estudio** con probabilidades realistas de éxito.  
@@ -12,7 +12,7 @@ Base de datos por defecto: **SQLite** (archivo local). Producción: **MariaDB** 
 
 ## 1) Estructura de carpetas
 
-```
+```markdown
 
 calcunota/
 ├─ .venv/                ← entorno virtual local (NO usar de otro OS)
@@ -30,7 +30,7 @@ calcunota/
 ├─ run.py                ← app mínima (legacy); usar wsgi.py
 └─ wsgi.py               ← entrypoint recomendado
 
-````
+```
 
 
 ## 2) Flujo funcional (de extremo a extremo)
@@ -55,7 +55,7 @@ calcunota/
      "secciones": [{"porcentaje":0.2,"num_notas":4,"notas_obtenidas":[]}, ...],
      "objetivo": None
    }
-````
+   ```
 
 Render: `templates/configurar_materia.html`.
 
@@ -217,4 +217,3 @@ python wsgi.py
 * **Grids adaptativos** (auto) y **supergrid** (95/100 reales) para evitar falsas imposibilidades.
 * **Separación por capas** (servicios, rutas, DB) para migrar futuro **Next.js + API Java** si se desea.
 
-````
