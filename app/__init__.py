@@ -1,9 +1,20 @@
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 from flask import Flask
-from .db import SessionLocal
 
 def create_app():
+    # Cargar .env también en runtime (no solo en Alembic)
+    base_dir = Path(__file__).resolve().parents[1]
+    load_dotenv(dotenv_path=base_dir / ".env")
+
     app = Flask(__name__)
-    app.secret_key = "dev-secret"  # cambia en producción
+    # Seguridad: usar SECRET_KEY desde entorno en despliegue real
+    app.secret_key = os.getenv("SECRET_KEY", "dev-secret")
+
+    # Importar DB session DESPUÉS de cargar .env, para que DATABASE_URL aplique.
+    from .db import SessionLocal
 
     @app.teardown_appcontext
     def remove_session(exc=None):
