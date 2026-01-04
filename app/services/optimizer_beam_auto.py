@@ -284,6 +284,7 @@ def _beam_search(
     E = sorted(evals, key=lambda e: e.weight, reverse=True)
 
     # Prepara (α,β, calibrator) por eval para colas on-the-fly
+    # (se consulta una sola vez por request; get_calibrator ya es robusto si la DB no está lista)
     calibrators = {e.eval_label: get_calibrator(e.course_key, e.eval_label) for e in E}
     ab_cal = {e.eval_id: (e.alpha, e.beta, calibrators.get(e.eval_label)) for e in E}
 
@@ -432,7 +433,12 @@ def optimize_auto_backend(
         return {"baseline_prob": 0.0, "plans": [], "message": "Objetivo inalcanzable aún con máximos teóricos."}
 
     # 2) Colas calibradas precomputadas (solo grid)
-    tail = _precompute_tail_beta(evals)
+    #    Importante: evitar consultas repetidas a DB durante el cálculo.
+    calibrators = {e.eval_label: get_calibrator(e.course_key, e.eval_label) for e in evals}
+    tail: Dict[str, Dict[int, float]] = {}
+    for e in evals:
+        cal = calibrators.get(e.eval_label)
+        tail[e.eval_id] = {s: _tail_prob_beta(s, e.alpha, e.beta, calibrator=cal) for s in e.grid}
 
     # 3) BEAM — Pase 1 (realista, sin booster ni supergrid)
     plans = _beam_search(
@@ -476,7 +482,7 @@ def optimize_auto_backend(
         for e in evals:
             s = p["targets"][e.eval_id]
             # prob de cola coherente con lo que usó el beam (puede ser 95/100 fuera del grid)
-            cal = get_calibrator(e.course_key, e.eval_label)
+            cal = calibrators.get(e.eval_label)
             p_tail = _tail_prob_beta(s, e.alpha, e.beta, calibrator=cal)
             details.append({
                 "eval_id": e.eval_id,
