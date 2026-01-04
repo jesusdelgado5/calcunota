@@ -2,6 +2,7 @@ from typing import List
 import numpy as np
 from app.db import SessionLocal
 from app.db.models import IsotonicCalibration
+from sqlalchemy.exc import SQLAlchemyError
 
 class IdentityCalibrator:
     def __call__(self, p: float) -> float:
@@ -41,5 +42,8 @@ def get_calibrator(course_key: str, eval_label: str):
         if not xs or not ys or len(xs)!=len(ys):
             return IdentityCalibrator()
         return IsotonicFromKnots(xs, ys)
+    except SQLAlchemyError:
+        # Primera corrida sin migraciones / DB inconsistente: no debe tumbar la app.
+        return IdentityCalibrator()
     finally:
         db.close()

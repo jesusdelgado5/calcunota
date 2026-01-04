@@ -20,6 +20,8 @@ class EvalSpec:
     weight: float   # 0..1 (porcentaje_seccion/num_notas)
     mu: float       # 0..100
     sigma: float    # >0
+    alpha: float    # Beta α (sobre [0,1])
+    beta: float     # Beta β (sobre [0,1])
     s_min: int      # 0..100
     s_max: int
     s_step: int
@@ -31,16 +33,81 @@ class EvalSpec:
         return list(range(self.s_min, self.s_max + 1, self.s_step))
 
 
-# -------------------- Beta a partir de (mu, sigma) --------------------
-def _beta_params_from_mu_sigma(mu: float, sigma: float) -> Tuple[float, float]:
-    """Convierte (mu, sigma) (escala 0..100) a Beta(α,β) sobre [0,1]."""
-    m = float(np.clip(mu / 100.0, 1e-4, 1.0 - 1e-4))
-    v = float(np.clip((sigma / 100.0) ** 2, 1e-6, 0.25))
-    k = m * (1 - m) / v - 1.0
-    k = max(k, 2.0)  # evita α,β < 1 (colas raras)
-    alpha = m * k
-    beta = (1 - m) * k
-    return float(alpha), float(beta)
+# -------------------- Beta (posterior heurístico) --------------------
+def _clip01(x: float) -> float:
+    return float(np.clip(x, 1e-4, 1.0 - 1e-4))
+
+
+def _conc_from_mu_sigma(mu01: float, sigma01: float) -> float:
+    """
+    Convierte (mu, sigma) en concentración t=(α+β).
+
+    Nota: var_beta = m(1-m)/(t+1) => t = m(1-m)/v - 1
+    """
+    m = _clip01(mu01)
+    v = float(sigma01 ** 2)
+    # var máxima de una variable en [0,1] es m(1-m); no puede excederla.
+    vmax = float(m * (1.0 - m) - 1e-9)
+    v = float(np.clip(v, 1e-6, vmax))
+    t = m * (1.0 - m) / v - 1.0
+    return float(np.clip(t, 2.0, 500.0))
+
+
+def _beta_from_mean_conc(mu01: float, t: float) -> Tuple[float, float]:
+    m = _clip01(mu01)
+    t = float(np.clip(t, 2.0, 500.0))
+    return float(m * t), float((1.0 - m) * t)
+
+
+def _posterior_beta_from_scores(
+    scores_norm: List[float],
+    *,
+    mu_prior: float,
+    sigma_prior: float,
+    prior_strength: float = 1.0,
+) -> Tuple[float, float, float, float]:
+    """
+    Estima Beta(α,β) en [0,1] para el alumno en una sección, mezclando:
+    - Prior (μ_prior, σ_prior) -> (m0, t0)
+    - Observaciones del alumno (mean/var) -> (m1, t1) si hay suficiente data
+
+    Devuelve: (alpha, beta, mu_0_100, sigma_0_100)
+    """
+    xs = [float(x) for x in (scores_norm or []) if x is not None]
+    n = len(xs)
+
+    # Prior como Beta(m0, t0)
+    m0 = _clip01(float(mu_prior) / 100.0)
+    t0 = _conc_from_mu_sigma(m0, float(sigma_prior) / 100.0) * float(max(0.25, prior_strength))
+    t0 = float(np.clip(t0, 2.0, 500.0))
+
+    if n == 0:
+        a0, b0 = _beta_from_mean_conc(m0, t0)
+        mu = 100.0 * m0
+        sigma = 100.0 * math.sqrt(m0 * (1.0 - m0) / (t0 + 1.0))
+        return a0, b0, float(mu), float(sigma)
+
+    # Datos del alumno
+    m1 = _clip01(float(np.mean(xs)) / 100.0)
+    t_data: float
+    if n >= 5:
+        # Si hay suficiente data, estimamos concentración desde var empírica
+        v1 = float(np.var(xs, ddof=1)) / (100.0 ** 2)
+        # si v1 es demasiado chico/ruidoso, _conc_ lo estabiliza con clamps
+        t1 = _conc_from_mu_sigma(m1, math.sqrt(max(1e-9, v1)))
+        # cap para no sobre-confiarnos con muestras chicas
+        t_data = float(np.clip(t1, 2.0, 200.0))
+    else:
+        # Con pocas observaciones, usamos un peso conservador proporcional a n
+        t_data = float(np.clip(2.0 * n, 2.0, 20.0))
+
+    t_post = float(np.clip(t0 + t_data, 2.0, 500.0))
+    m_post = _clip01((t0 * m0 + t_data * m1) / (t0 + t_data))
+    a, b = _beta_from_mean_conc(m_post, t_post)
+
+    mu = 100.0 * m_post
+    sigma = 100.0 * math.sqrt(m_post * (1.0 - m_post) / (t_post + 1.0))
+    return float(a), float(b), float(mu), float(sigma)
 
 
 def _tail_prob_beta(s: int, alpha: float, beta: float, calibrator=None) -> float:
@@ -49,27 +116,6 @@ def _tail_prob_beta(s: int, alpha: float, beta: float, calibrator=None) -> float
     if calibrator is not None:
         p = calibrator(p)
     return max(1e-8, min(1.0, p))
-
-
-# -------------------- Estimación μ,σ con shrinkage --------------------
-def _estimate_student_mu_sigma(
-    notas_norm: List[float],
-    mu_prior: float,
-    sigma_prior: float,
-    prior_weight: float = 2.0
-) -> Tuple[float, float]:
-    xs = [float(x) for x in (notas_norm or []) if x is not None]
-    k = len(xs)
-    if k == 0:
-        return float(mu_prior), float(sigma_prior)
-    m = float(np.mean(xs))
-    if k >= 2:
-        sd = float(np.std(xs, ddof=1))
-    else:
-        sd = float(sigma_prior)
-    mu_hat = (k * m + prior_weight * mu_prior) / (k + prior_weight)
-    sd_hat = min(25.0, max(6.0, (sd + sigma_prior) / 2.0))
-    return float(mu_hat), float(sd_hat)
 
 
 # -------------------- Grid adaptativo por μ,σ --------------------
@@ -119,7 +165,9 @@ def build_evals_trust_with_priors(
         label = labels[i] if i < len(labels) else f"Sección {i+1}"
 
         mu0, s0 = get_eval_prior(course_key, label)
-        mu_hat, sigma_hat = _estimate_student_mu_sigma(notas_norm, mu0, s0)
+        a, b, mu_hat, sigma_hat = _posterior_beta_from_scores(
+            notas_norm, mu_prior=mu0, sigma_prior=s0, prior_strength=1.0
+        )
 
         is_final_like = any(x in label.lower() for x in ["final", "semestral", "examen final"])
         gmin, gmax, gstep = _adaptive_grid_params(mu_hat, sigma_hat, is_final_like, default_min, final_min)
@@ -130,6 +178,7 @@ def build_evals_trust_with_priors(
                 eval_id=f"sec{i+1}_nota{idx}",
                 name=f"{label} - Nota {idx}",
                 weight=w_item, mu=mu_hat, sigma=sigma_hat,
+                alpha=a, beta=b,
                 s_min=gmin, s_max=gmax, s_step=gstep,
                 course_key=course_key, eval_label=label
             ))
@@ -139,13 +188,12 @@ def build_evals_trust_with_priors(
 
 # -------------------- Colas calibradas por sección --------------------
 def _precompute_tail_beta(evals: List[EvalSpec]) -> Dict[str, Dict[int, float]]:
-    """eid -> {s: P(Y>=s)} usando Beta(μ,σ) + calibración por sección."""
+    """eid -> {s: P(Y>=s)} usando Beta(α,β) + calibración por sección."""
     out: Dict[str, Dict[int, float]] = {}
     calibrators = {e.eval_label: get_calibrator(e.course_key, e.eval_label) for e in evals}
     for e in evals:
-        a, b = _beta_params_from_mu_sigma(e.mu, e.sigma)
         cal = calibrators.get(e.eval_label)
-        out[e.eval_id] = {s: _tail_prob_beta(s, a, b, calibrator=cal) for s in e.grid}
+        out[e.eval_id] = {s: _tail_prob_beta(s, e.alpha, e.beta, calibrator=cal) for s in e.grid}
     return out
 
 
@@ -237,7 +285,7 @@ def _beam_search(
 
     # Prepara (α,β, calibrator) por eval para colas on-the-fly
     calibrators = {e.eval_label: get_calibrator(e.course_key, e.eval_label) for e in E}
-    ab_cal = {e.eval_id: (*_beta_params_from_mu_sigma(e.mu, e.sigma), calibrators.get(e.eval_label)) for e in E}
+    ab_cal = {e.eval_id: (e.alpha, e.beta, calibrators.get(e.eval_label)) for e in E}
 
     beam: List[Tuple[float, float, Dict[str, int]]] = [(0.0, 0.0, {})]
 
@@ -301,12 +349,11 @@ def _samples_beta_copula(evals: List[EvalSpec], N: int = 20000, seed: int = 123,
 
     out: Dict[str, np.ndarray] = {}
     for e in evals:
-        a, b = _beta_params_from_mu_sigma(e.mu, e.sigma)
         eps = rng.standard_normal(size=N).astype(np.float32)
         latent = rho * Z + np.sqrt(max(1e-9, 1 - rho**2)) * eps
         U = norm.cdf(latent)  # vectorizado
         U = np.clip(U, 1e-6, 1 - 1e-6)
-        Y = _beta.ppf(U, a, b).astype(np.float32) * 100.0
+        Y = _beta.ppf(U, e.alpha, e.beta).astype(np.float32) * 100.0
         out[e.eval_id] = np.clip(Y, 0.0, 100.0)
     return out
 
@@ -429,9 +476,8 @@ def optimize_auto_backend(
         for e in evals:
             s = p["targets"][e.eval_id]
             # prob de cola coherente con lo que usó el beam (puede ser 95/100 fuera del grid)
-            a, b = _beta_params_from_mu_sigma(e.mu, e.sigma)
             cal = get_calibrator(e.course_key, e.eval_label)
-            p_tail = _tail_prob_beta(s, a, b, calibrator=cal)
+            p_tail = _tail_prob_beta(s, e.alpha, e.beta, calibrator=cal)
             details.append({
                 "eval_id": e.eval_id,
                 "name": e.name,
