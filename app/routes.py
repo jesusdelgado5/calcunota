@@ -13,6 +13,7 @@ from .services.user_progress import (
     set_course_objetivo,
     upsert_course_config,
 )
+from .services.auth import authenticate_user, register_user
 
 
 
@@ -82,11 +83,17 @@ def perfil():
 
 @web_bp.post("/login")
 def login():
-    session["user_id"] = "demo-user-1"
-    session.pop("user_pk", None)
-    _current_user_pk()
+    username = (request.form.get("username") or "").strip()
+    password = request.form.get("password") or ""
+    pk = authenticate_user(username, password)
+    if not pk:
+        flash("Usuario o contraseña inválidos.", "error")
+        return redirect(url_for("web.perfil"))
+    session["user_id"] = username
+    session["user_pk"] = pk
+    session.modified = True
     flash("Sesión iniciada.", "ok")
-    return redirect(url_for("web.perfil"))
+    return redirect(url_for("web.dashboard"))
 
 @web_bp.post("/logout")
 def logout():
@@ -97,11 +104,23 @@ def logout():
 
 @web_bp.post("/register")
 def register():
-    session["user_id"] = "demo-user-1"
-    session.pop("user_pk", None)
-    _current_user_pk()
-    flash("Usuario registrado e iniciado.", "ok")
-    return redirect(url_for("web.perfil"))
+    username = (request.form.get("username") or "").strip()
+    password = request.form.get("password") or ""
+    if len(username) < 3:
+        flash("El usuario debe tener al menos 3 caracteres.", "error")
+        return redirect(url_for("web.perfil"))
+    if len(password) < 6:
+        flash("La contraseña debe tener al menos 6 caracteres.", "error")
+        return redirect(url_for("web.perfil"))
+    pk = register_user(username, password)
+    if not pk:
+        flash("No se pudo registrar (quizás el usuario ya existe).", "error")
+        return redirect(url_for("web.perfil"))
+    session["user_id"] = username
+    session["user_pk"] = pk
+    session.modified = True
+    flash("Usuario creado e iniciado.", "ok")
+    return redirect(url_for("web.dashboard"))
 
 def slugify(name: str):
     s = re.sub(r'\s+', '-', name.strip().lower())
@@ -218,7 +237,7 @@ def captura_secciones_post(nombre):
     labels = data["labels"]
     idx = max(0, min(int(request.form.get("idx", 0)), len(secciones)-1))
 
-    # 1) Actualiza el total
+    # 1) Actualiza el total (aún no persistimos hasta validar)
     try:
         total = int(request.form.get("total", secciones[idx]["num_notas"] or 0))
     except:
@@ -249,6 +268,22 @@ def captura_secciones_post(nombre):
                     bsf = 100.0
                 if bsf <= 0:
                     bsf = 100.0
+                # Validación: no permitir score > base
+                if scf > bsf:
+                    flash("Error: la nota obtenida no puede ser mayor que la base.", "error")
+                    return render_template(
+                        "captura.html",
+                        active="calcular",
+                        nombre=nombre,
+                        idx=idx,
+                        label=labels[idx],
+                        secciones=secciones,
+                        labels=labels,
+                        is_auth=is_auth(),
+                        open_popup=True,
+                        draft_total=total,
+                        draft_notes=notas_vals + [{"score": scf, "base": bsf}],
+                    )
                 notas_vals.append({"score": scf, "base": bsf})
     else:
         # fallback: compatibilidad con el viejo formato "notas[]"
@@ -256,14 +291,31 @@ def captura_secciones_post(nombre):
             v = (v or "").strip()
             if v != "":
                 try:
-                    notas_vals.append({"score": float(v), "base": 100.0})
+                    scf = float(v)
                 except:
-                    notas_vals.append({"score": 0.0, "base": 100.0})
+                    scf = 0.0
+                if scf > 100.0:
+                    flash("Error: la nota no puede ser mayor que la base (100).", "error")
+                    return render_template(
+                        "captura.html",
+                        active="calcular",
+                        nombre=nombre,
+                        idx=idx,
+                        label=labels[idx],
+                        secciones=secciones,
+                        labels=labels,
+                        is_auth=is_auth(),
+                        open_popup=True,
+                        draft_total=total,
+                        draft_notes=notas_vals + [{"score": scf, "base": 100.0}],
+                    )
+                notas_vals.append({"score": scf, "base": 100.0})
 
     # recorta si excede el total
     if total > 0 and len(notas_vals) > total:
         notas_vals = notas_vals[:total]
 
+    # Ahora sí, persistimos en sesión
     secciones[idx]["num_notas"] = total
     secciones[idx]["notas_obtenidas"] = notas_vals
 
@@ -303,7 +355,14 @@ def captura_secciones_post(nombre):
     action = request.form.get("action", "siguiente")
     if action == "anterior" and idx > 0:
         return redirect(url_for("web.captura_secciones", nombre=nombre, idx=idx-1))
+    elif action == "guardar":
+        flash("Notas guardadas.", "ok")
+        return redirect(url_for("web.captura_secciones", nombre=nombre, idx=idx))
+    elif action == "revisar":
+        flash("Notas guardadas.", "ok")
+        return redirect(url_for("web.captura_secciones", nombre=nombre, idx=idx))
     elif action in ("siguiente", "continuar") and idx < len(secciones)-1:
+        flash("Notas guardadas.", "ok")
         return redirect(url_for("web.captura_secciones", nombre=nombre, idx=idx+1))
     else:
         return redirect(url_for("web.resumen_materia", nombre=nombre))

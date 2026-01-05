@@ -81,22 +81,11 @@
                 </button>
               </form>
               {% else %}
-              <form method="post" action="{{ url_for('web.login') }}">
-                <button
-                  class="w-full text-left px-3 py-2 text-sm hover:bg-slate-50"
-                  type="submit"
-                >
-                  Iniciar sesión (demo)
-                </button>
-              </form>
-              <form method="post" action="{{ url_for('web.register') }}">
-                <button
-                  class="w-full text-left px-3 py-2 text-sm hover:bg-slate-50"
-                  type="submit"
-                >
-                  Registrarse (demo)
-                </button>
-              </form>
+              <a
+                class="block px-3 py-2 text-sm hover:bg-slate-50"
+                href="{{ url_for('web.perfil') }}"
+                >Iniciar sesión / Registrarse</a
+              >
               {% endif %}
             </div>
           </div>

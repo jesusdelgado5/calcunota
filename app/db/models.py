@@ -18,6 +18,8 @@ class AppUser(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    # Nullable para compatibilidad con usuarios demo existentes; en registro real se exige.
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, server_default=func.now())
 
 
