@@ -56,14 +56,19 @@
     class="mt-4 flex items-end gap-3"
   >
     <label class="text-sm text-slate-700">
-      Objetivo final (0..100)
-      <input
-        name="objetivo"
-        type="number"
-        step="0.01"
-        placeholder="Ej. 81"
+      Objetivo (letra)
+      <select
+        name="objetivo_grade"
+        required
         class="mt-1 rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
-      />
+      >
+        <option value="">— Selecciona —</option>
+        <option value="A">A (91+)</option>
+        <option value="B">B (81–90)</option>
+        <option value="C">C (71–80)</option>
+        <option value="D">D (61–70)</option>
+        <option value="F">F (≤60)</option>
+      </select>
     </label>
     <button
       class="rounded-lg px-4 py-2 {% if completo %} bg-brand-600 hover:bg-brand-700 text-white {% else %} bg-slate-200 text-slate-500 cursor-not-allowed {% endif %}"

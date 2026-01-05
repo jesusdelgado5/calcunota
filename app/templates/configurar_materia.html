@@ -150,11 +150,32 @@ endblock %} {% block content %}
     enforce100();
   });
 
-  // arranca con 1 fila
-  rows.appendChild(row());
+  function applyRecommended() {
+    const rec = {{ (recommended or [])|tojson }};
+    if (Array.isArray(rec) && rec.length > 0) {
+      rows.innerHTML = "";
+      rec.forEach((s) => {
+        const d = row();
+        const name = d.querySelector('input[name="sec_nombre[]"]');
+        const pct = d.querySelector('input[name="sec_porcentaje[]"]');
+        const n = d.querySelector('input[name="sec_num_notas[]"]');
+        if (name) name.value = (s.label || "");
+        if (pct) pct.value = ((s.porcentaje || 0) * 100.0).toFixed(1);
+        if (n) n.value = (s.num_notas ?? "");
+        rows.appendChild(d);
+      });
+      updateSum();
+      enforce100();
+      return;
+    }
+    rows.appendChild(row());
+    updateSum();
+    enforce100();
+  }
+
+  applyRecommended();
   // estado inicial
-  updateSum();
-  enforce100();
+  // updateSum/enforce100 ya se llaman en applyRecommended
 
   // si quieres recalcular no sólo cuando cambie el %,
   // puedes escuchar input global en todo el contenedor:

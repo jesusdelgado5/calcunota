@@ -13,7 +13,10 @@ from .services.user_progress import (
     set_course_objetivo,
     upsert_course_config,
 )
-from .services.auth import authenticate_user, register_user
+from .services.auth import authenticate_user, register_user, change_password, issue_reset_token, reset_password
+from app.db import SessionLocal
+from app.db.models import Subject, Professor, SubjectProfessor
+from .services.goal_grades import grade_to_objective
 
 
 
@@ -102,6 +105,47 @@ def logout():
     flash("Sesión cerrada.", "ok")
     return redirect(url_for("web.perfil"))
 
+
+@web_bp.post("/change-password")
+def change_password_route():
+    if not is_auth():
+        flash("Debes iniciar sesión.", "error")
+        return redirect(url_for("web.perfil"))
+    pk = _current_user_pk()
+    if not pk:
+        flash("No se pudo identificar el usuario.", "error")
+        return redirect(url_for("web.perfil"))
+    ok = change_password(pk, request.form.get("current_password") or "", request.form.get("new_password") or "")
+    if ok:
+        flash("Contraseña actualizada.", "ok")
+    else:
+        flash("No se pudo actualizar la contraseña (verifica la actual y que la nueva tenga 6+ caracteres).", "error")
+    return redirect(url_for("web.perfil"))
+
+
+@web_bp.post("/forgot-password")
+def forgot_password():
+    token = issue_reset_token(request.form.get("username") or "")
+    if not token:
+        flash("No se pudo generar token (usuario inexistente).", "error")
+    else:
+        flash(f"Token generado (modo dev): {token}", "ok")
+    return redirect(url_for("web.perfil"))
+
+
+@web_bp.post("/reset-password")
+def reset_password_route():
+    ok = reset_password(
+        request.form.get("username") or "",
+        request.form.get("token") or "",
+        request.form.get("new_password") or "",
+    )
+    if ok:
+        flash("Contraseña restablecida. Ya puedes iniciar sesión.", "ok")
+    else:
+        flash("No se pudo restablecer (token inválido/expirado o contraseña corta).", "error")
+    return redirect(url_for("web.perfil"))
+
 @web_bp.post("/register")
 def register():
     username = (request.form.get("username") or "").strip()
@@ -130,16 +174,97 @@ def slugify(name: str):
 @web_bp.route("/calcular", methods=["GET", "POST"])
 def calcular():
     if request.method == "POST":
-        materia = (request.form.get("materia") or "").strip()
-        if not materia:
-            flash("Ingresa el nombre de la materia.", "error")
-            return render_template("calcular.html", active="calcular", is_auth=is_auth())
-        return redirect(url_for("web.configurar_materia", nombre=slugify(materia)))
-    return render_template("calcular.html", active="calcular", is_auth=is_auth())
+        term = (request.form.get("term") or "default").strip() or "default"
+        subject_id = (request.form.get("subject_id") or "").strip()
+        custom_name = (request.form.get("materia_custom") or "").strip()
+        prof_id = (request.form.get("professor_id") or "").strip()
+
+        chosen_name = ""
+        chosen_subject_id = None
+        chosen_professor_id = None
+
+        if subject_id and subject_id != "custom":
+            db = SessionLocal()
+            try:
+                subj = db.query(Subject).filter(Subject.id == int(subject_id)).one_or_none()
+                if subj:
+                    chosen_name = subj.name
+                    chosen_subject_id = int(subj.id)
+            finally:
+                db.close()
+        else:
+            chosen_name = custom_name
+
+        if not chosen_name:
+            flash("Elige una materia o escribe una.", "error")
+            return redirect(url_for("web.calcular"))
+
+        if prof_id:
+            try:
+                chosen_professor_id = int(prof_id)
+            except Exception:
+                chosen_professor_id = None
+
+        # course_key incorpora term para evitar colisiones en URLs
+        base_key = slugify(chosen_name)
+        term_key = slugify(term) if term and term != "default" else "default"
+        course_key = base_key if term_key == "default" else f"{base_key}-{term_key}"
+
+        session["course_meta"] = {
+            "course_name": chosen_name,
+            "term": term,
+            "subject_id": chosen_subject_id,
+            "professor_id": chosen_professor_id,
+        }
+        session.modified = True
+
+        return redirect(url_for("web.configurar_materia", nombre=course_key))
+
+    # GET: cargar catálogo
+    subjects = []
+    prof_map = {}
+    db = SessionLocal()
+    try:
+        subjects = db.query(Subject).order_by(Subject.name.asc()).all()
+        links = db.query(SubjectProfessor).all()
+        # subject_id -> [professor_id,...]
+        for l in links:
+            prof_map.setdefault(int(l.subject_id), []).append(int(l.professor_id))
+        professors = db.query(Professor).order_by(Professor.name.asc()).all()
+    finally:
+        db.close()
+
+    return render_template(
+        "calcular.html",
+        active="calcular",
+        is_auth=is_auth(),
+        subjects=subjects,
+        professors=professors,
+        prof_map=prof_map,
+    )
 
 @web_bp.get("/calcular/<nombre>/configurar")
 def configurar_materia(nombre):
-    return render_template("configurar_materia.html", active="calcular", nombre=nombre, is_auth=is_auth())
+    # plantilla recomendada según subject seleccionado
+    meta = session.get("course_meta") or {}
+    recommended = []
+    subject_id = meta.get("subject_id")
+    if subject_id:
+        db = SessionLocal()
+        try:
+            subj = db.query(Subject).filter(Subject.id == int(subject_id)).one_or_none()
+            if subj and subj.recommended_config and isinstance(subj.recommended_config, dict):
+                recommended = subj.recommended_config.get("sections") or []
+        finally:
+            db.close()
+    return render_template(
+        "configurar_materia.html",
+        active="calcular",
+        nombre=nombre,
+        is_auth=is_auth(),
+        recommended=recommended,
+        term=(meta.get("term") or "default"),
+    )
 
 @web_bp.post("/calcular/<nombre>/configurar")
 def configurar_materia_post(nombre):
@@ -193,12 +318,16 @@ def configurar_materia_post(nombre):
     if is_auth():
         pk = _current_user_pk()
         if pk:
+            meta = session.get("course_meta") or {}
             ok = upsert_course_config(
                 user_id=pk,
                 course_key=nombre,
-                course_name=nombre,
+                course_name=meta.get("course_name") or nombre,
+                subject_id=meta.get("subject_id"),
+                professor_id=meta.get("professor_id"),
                 labels=labels_clean,
                 secciones=secciones,
+                term=meta.get("term") or "default",
             )
             if not ok:
                 flash("Aviso: no se pudo guardar la materia en la base de datos.", "error")
@@ -223,7 +352,8 @@ def captura_secciones(nombre):
         label=data["labels"][idx],
         secciones=data["secciones"],
         labels=data["labels"],
-        is_auth=is_auth()
+        is_auth=is_auth(),
+        open_popup=(request.args.get("autopopup") == "1"),
     )
 
 @web_bp.post("/materia/<nombre>/captura")
@@ -250,9 +380,14 @@ def captura_secciones_post(nombre):
     #    Nuevo formato: pares (score/base)
     scores_in = request.form.getlist("notas_score[]")
     bases_in  = request.form.getlist("notas_base[]")
+    legacy_in = request.form.getlist("notas[]")
 
-    notas_vals = []
-    if scores_in or bases_in:
+    # Si no vinieron campos de notas, NO sobrescribimos las ya guardadas.
+    if not (scores_in or bases_in or legacy_in):
+        notas_vals = old_notas
+    else:
+        notas_vals = []
+    if (scores_in or bases_in) and notas_vals is not old_notas:
         # usar el nuevo formato
         for sc, bs in zip(scores_in, bases_in):
             sc = (sc or "").strip()
@@ -285,9 +420,9 @@ def captura_secciones_post(nombre):
                         draft_notes=notas_vals + [{"score": scf, "base": bsf}],
                     )
                 notas_vals.append({"score": scf, "base": bsf})
-    else:
+    elif legacy_in and notas_vals is not old_notas:
         # fallback: compatibilidad con el viejo formato "notas[]"
-        for v in request.form.getlist("notas[]"):
+        for v in legacy_in:
             v = (v or "").strip()
             if v != "":
                 try:
@@ -358,9 +493,12 @@ def captura_secciones_post(nombre):
     elif action == "guardar":
         flash("Notas guardadas.", "ok")
         return redirect(url_for("web.captura_secciones", nombre=nombre, idx=idx))
-    elif action == "revisar":
+    elif action == "popup_revisar":
         flash("Notas guardadas.", "ok")
         return redirect(url_for("web.captura_secciones", nombre=nombre, idx=idx))
+    elif action == "popup_siguiente" and idx < len(secciones)-1:
+        flash("Notas guardadas.", "ok")
+        return redirect(url_for("web.captura_secciones", nombre=nombre, idx=idx+1, autopopup=1))
     elif action in ("siguiente", "continuar") and idx < len(secciones)-1:
         flash("Notas guardadas.", "ok")
         return redirect(url_for("web.captura_secciones", nombre=nombre, idx=idx+1))
@@ -401,8 +539,12 @@ def materia_calcular(nombre):
         flash("No hay materia en progreso.", "error")
         return redirect(url_for("web.calcular"))
 
-    objetivo = request.form.get("objetivo")
-    objetivo_val = float(objetivo) if objetivo else None
+    objetivo_val = None
+    if request.form.get("objetivo_grade"):
+        objetivo_val = grade_to_objective(request.form.get("objetivo_grade") or "")
+    else:
+        objetivo = request.form.get("objetivo")
+        objetivo_val = float(objetivo) if objetivo else None
     if is_auth():
         pk = _current_user_pk()
         if pk:
@@ -580,9 +722,8 @@ def materia_planes_auto_post(nombre):
     if not data or data.get("nombre") != nombre:
         flash("No hay materia en progreso.", "error")
         return redirect(url_for("web.calcular"))
-    try:
-        objetivo = float((request.form.get("objetivo") or "").strip())
-    except:
+    objetivo = grade_to_objective(request.form.get("objetivo_grade") or "")
+    if objetivo is None:
         flash("Objetivo inválido.", "error")
         return redirect(url_for("web.materia_planes_auto", nombre=nombre))
 

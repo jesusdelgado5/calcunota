@@ -49,6 +49,8 @@ def upsert_course_config(
     user_id: int,
     course_key: str,
     course_name: str | None,
+    subject_id: int | None = None,
+    professor_id: int | None = None,
     labels: List[str],
     secciones: List[Dict[str, Any]],
     term: str = "default",
@@ -79,6 +81,13 @@ def upsert_course_config(
             db.flush()
         else:
             course.course_name = course_name or course.course_name
+            course.subject_id = subject_id if subject_id is not None else course.subject_id
+            course.professor_id = professor_id if professor_id is not None else course.professor_id
+
+        if subject_id is not None:
+            course.subject_id = int(subject_id)
+        if professor_id is not None:
+            course.professor_id = int(professor_id)
 
         # Limpia secciones + notas (CASCADE desde secciones)
         db.query(UserCourseSection).filter(UserCourseSection.user_course_id == course.id).delete()
@@ -280,7 +289,7 @@ def list_user_courses(*, user_id: int, term: str = "default") -> List[UserCourse
     try:
         courses = (
             db.query(UserCourse)
-            .filter(UserCourse.user_id == user_id, UserCourse.term == term)
+            .filter(UserCourse.user_id == user_id)
             .order_by(UserCourse.updated_at.desc())
             .all()
         )

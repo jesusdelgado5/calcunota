@@ -3,7 +3,7 @@
 <div class="max-w-xl">
   <h1 class="text-xl font-semibold text-slate-900">Crear materia</h1>
   <p class="text-slate-600 mt-1">
-    Dale un nombre para configurar secciones de evaluación.
+    Elige una materia (y opcionalmente un profesor) o crea una nueva.
   </p>
 
   <form
@@ -11,13 +11,49 @@
     action="{{ url_for('web.calcular') }}"
     class="mt-4 grid gap-3"
   >
-    <label class="text-sm text-slate-700">Nombre de la materia</label>
+    <label class="text-sm text-slate-700">Semestre / periodo</label>
     <input
-      name="materia"
+      name="term"
       type="text"
-      placeholder="Ej. Física I"
+      placeholder="Ej. 2026-1 (opcional)"
+      value="default"
       class="rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
     />
+
+    <label class="text-sm text-slate-700">Materia</label>
+    <select
+      id="subject_id"
+      name="subject_id"
+      class="rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
+    >
+      <option value="">— Selecciona —</option>
+      {% for s in subjects or [] %}
+      <option value="{{ s.id }}">{{ s.name }}</option>
+      {% endfor %}
+      <option value="custom">Otra (escribir)</option>
+    </select>
+
+    <div id="custom_subject_wrap" class="hidden">
+      <label class="text-sm text-slate-700">Nombre de la materia</label>
+      <input
+        name="materia_custom"
+        type="text"
+        placeholder="Ej. Física I"
+        class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
+      />
+    </div>
+
+    <label class="text-sm text-slate-700">Profesor (opcional)</label>
+    <select
+      id="professor_id"
+      name="professor_id"
+      class="rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
+    >
+      <option value="">— Sin profesor —</option>
+      {% for p in professors or [] %}
+      <option value="{{ p.id }}">{{ p.name }}</option>
+      {% endfor %}
+    </select>
 
     <div class="flex items-center gap-3">
       <button
@@ -34,4 +70,37 @@
     </div>
   </form>
 </div>
+
+{% block body_extra %}
+<script>
+  const subjectSel = document.getElementById("subject_id");
+  const profSel = document.getElementById("professor_id");
+  const customWrap = document.getElementById("custom_subject_wrap");
+  const profMap = {{ (prof_map or {})|tojson }};
+
+  function updateUi() {
+    const sid = subjectSel.value;
+    const isCustom = sid === "custom";
+    customWrap.classList.toggle("hidden", !isCustom);
+
+    // filtrar profesores si hay mapa para esa materia
+    const allowed = profMap[sid] || profMap[parseInt(sid)] || null;
+    const options = Array.from(profSel.options);
+    options.forEach((opt) => {
+      if (!opt.value) return; // "sin profesor"
+      if (!allowed) {
+        opt.hidden = false;
+      } else {
+        opt.hidden = !allowed.includes(parseInt(opt.value));
+      }
+    });
+    // si el seleccionado quedó oculto, reset
+    if (profSel.selectedOptions.length && profSel.selectedOptions[0].hidden) {
+      profSel.value = "";
+    }
+  }
+  subjectSel?.addEventListener("change", updateUi);
+  updateUi();
+</script>
+{% endblock %}
 {% endblock %}

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional, Dict
 
 from sqlalchemy.orm import declarative_base, Mapped, mapped_column
-from sqlalchemy import Integer, String, Float, DateTime, JSON, UniqueConstraint, Boolean, func, ForeignKey
+from sqlalchemy import Integer, String, Float, DateTime, JSON, UniqueConstraint, Boolean, func, ForeignKey, Text
 from sqlalchemy.sql import expression
 
 Base = declarative_base()
@@ -22,6 +22,48 @@ class AppUser(Base):
     password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, server_default=func.now())
 
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_token"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=expression.false())
+
+
+class Subject(Base):
+    """
+    Catálogo de materias. `recommended_config` guarda una plantilla sugerida:
+    {"sections":[{"label":"Parciales","porcentaje":0.4,"num_notas":2}, ...]}
+    """
+    __tablename__ = "subject"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False, unique=True, index=True)
+    recommended_config: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
+
+
+class Professor(Base):
+    __tablename__ = "professor"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False, unique=True, index=True)
+
+
+class SubjectProfessor(Base):
+    __tablename__ = "subject_professor"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subject.id", ondelete="CASCADE"), nullable=False, index=True)
+    professor_id: Mapped[int] = mapped_column(ForeignKey("professor.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("subject_id", "professor_id", name="uq_subject_professor"),
+    )
+
 
 class UserCourse(Base):
     """
@@ -35,6 +77,8 @@ class UserCourse(Base):
 
     course_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     course_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    subject_id: Mapped[Optional[int]] = mapped_column(ForeignKey("subject.id", ondelete="SET NULL"), nullable=True, index=True)
+    professor_id: Mapped[Optional[int]] = mapped_column(ForeignKey("professor.id", ondelete="SET NULL"), nullable=True, index=True)
     term: Mapped[str] = mapped_column(String(32), nullable=False, server_default="default")
 
     objetivo: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
