@@ -5,6 +5,14 @@ import re
 from .services.observations import log_observed_score
 from .services.predictions import log_plan_predictions
 from .services.predictions import resolve_predictions_with_new_score
+from .services.user_progress import (
+    ensure_user,
+    load_course_state,
+    list_user_courses,
+    save_section_notes,
+    set_course_objetivo,
+    upsert_course_config,
+)
 
 
 
@@ -12,6 +20,40 @@ web_bp = Blueprint("web", __name__)
 
 def is_auth():
     return bool(session.get("user_id"))
+
+def _current_user_pk():
+    """
+    Devuelve el id (PK) del usuario en DB si existe.
+    Con auth demo, crea el usuario si falta.
+    """
+    if not is_auth():
+        return None
+    if session.get("user_pk"):
+        return int(session["user_pk"])
+    username = str(session.get("user_id"))
+    pk = ensure_user(username)
+    if pk is not None:
+        session["user_pk"] = pk
+        session.modified = True
+    return pk
+
+def _ensure_session_course(nombre: str) -> bool:
+    """
+    Si no hay materia en sesión y el usuario está autenticado,
+    intenta cargarla desde DB para permitir "retomar" desde dashboard.
+    """
+    data = session.get("materia_actual")
+    if data and data.get("nombre") == nombre:
+        return True
+    pk = _current_user_pk()
+    if not pk:
+        return False
+    loaded = load_course_state(user_id=pk, course_key=nombre)
+    if not loaded:
+        return False
+    session["materia_actual"] = loaded
+    session.modified = True
+    return True
 
 @web_bp.get("/")
 def root():
@@ -21,7 +63,12 @@ def root():
 # ✅ dashboard para el botón "Home"
 @web_bp.get("/dashboard")
 def dashboard():
-    return render_template("dashboard.html", active="home", is_auth=is_auth())
+    courses = []
+    if is_auth():
+        pk = _current_user_pk()
+        if pk:
+            courses = list_user_courses(user_id=pk)
+    return render_template("dashboard.html", active="home", is_auth=is_auth(), courses=courses)
 
 # ✅ ajustes para el botón "Ajustes"
 @web_bp.get("/ajustes")
@@ -36,18 +83,23 @@ def perfil():
 @web_bp.post("/login")
 def login():
     session["user_id"] = "demo-user-1"
+    session.pop("user_pk", None)
+    _current_user_pk()
     flash("Sesión iniciada.", "ok")
     return redirect(url_for("web.perfil"))
 
 @web_bp.post("/logout")
 def logout():
     session.pop("user_id", None)
+    session.pop("user_pk", None)
     flash("Sesión cerrada.", "ok")
     return redirect(url_for("web.perfil"))
 
 @web_bp.post("/register")
 def register():
     session["user_id"] = "demo-user-1"
+    session.pop("user_pk", None)
+    _current_user_pk()
     flash("Usuario registrado e iniciado.", "ok")
     return redirect(url_for("web.perfil"))
 
@@ -118,11 +170,27 @@ def configurar_materia_post(nombre):
         "secciones": secciones,   # <-- lo que consumen tus funciones
         "objetivo": None
     }
+    # Persistir config si hay auth
+    if is_auth():
+        pk = _current_user_pk()
+        if pk:
+            ok = upsert_course_config(
+                user_id=pk,
+                course_key=nombre,
+                course_name=nombre,
+                labels=labels_clean,
+                secciones=secciones,
+            )
+            if not ok:
+                flash("Aviso: no se pudo guardar la materia en la base de datos.", "error")
     return redirect(url_for("web.captura_secciones", nombre=nombre, idx=0))
 
 @web_bp.get("/materia/<nombre>/captura")
 def captura_secciones(nombre):
-    data = session.get("materia_actual")
+    if not _ensure_session_course(nombre):
+        data = session.get("materia_actual")
+    else:
+        data = session.get("materia_actual")
     if not data or data.get("nombre") != nombre:
         flash("No hay materia en progreso.", "error")
         return redirect(url_for("web.calcular"))
@@ -203,6 +271,18 @@ def captura_secciones_post(nombre):
     session["materia_actual"]["secciones"] = secciones
     session.modified = True
 
+    # 3.1) Persistir en BD (progreso del usuario) si hay auth
+    if is_auth():
+        pk = _current_user_pk()
+        if pk:
+            save_section_notes(
+                user_id=pk,
+                course_key=nombre,
+                section_position=idx,
+                num_notas=secciones[idx]["num_notas"],
+                notas_obtenidas=secciones[idx]["notas_obtenidas"],
+            )
+
     # 4) *** registra SOLO las notas NUEVAS como observadas ***
     from .services.grades import normalize_nota  # importa aquí para evitar ciclos
     old_len = len(old_notas)
@@ -231,7 +311,10 @@ def captura_secciones_post(nombre):
 
 @web_bp.get("/materia/<nombre>/resumen")
 def resumen_materia(nombre):
-    data = session.get("materia_actual")
+    if not _ensure_session_course(nombre):
+        data = session.get("materia_actual")
+    else:
+        data = session.get("materia_actual")
     if not data or data.get("nombre") != nombre:
         flash("No hay materia en progreso.", "error")
         return redirect(url_for("web.calcular"))
@@ -251,13 +334,20 @@ def resumen_materia(nombre):
 
 @web_bp.post("/materia/<nombre>/calcular")
 def materia_calcular(nombre):
-    data = session.get("materia_actual")
+    if not _ensure_session_course(nombre):
+        data = session.get("materia_actual")
+    else:
+        data = session.get("materia_actual")
     if not data or data.get("nombre") != nombre:
         flash("No hay materia en progreso.", "error")
         return redirect(url_for("web.calcular"))
 
     objetivo = request.form.get("objetivo")
     objetivo_val = float(objetivo) if objetivo else None
+    if is_auth():
+        pk = _current_user_pk()
+        if pk:
+            set_course_objetivo(user_id=pk, course_key=nombre, objetivo=objetivo_val)
 
     # Aquí consumimos EXACTAMENTE la misma estructura que tu .py
     resultado = grades.resumen_desde_secciones(data["secciones"], objetivo_val)
@@ -280,7 +370,10 @@ from .services.optimizer_beam import optimize_from_secciones, build_evals_from_s
 
 @web_bp.get("/materia/<nombre>/planes")
 def materia_planes(nombre):
-    data = session.get("materia_actual")
+    if not _ensure_session_course(nombre):
+        data = session.get("materia_actual")
+    else:
+        data = session.get("materia_actual")
     if not data or data.get("nombre") != nombre:
         flash("No hay materia en progreso.", "error")
         return redirect(url_for("web.calcular"))
@@ -308,7 +401,10 @@ def materia_planes(nombre):
 
 @web_bp.post("/materia/<nombre>/planes")
 def materia_planes_post(nombre):
-    data = session.get("materia_actual")
+    if not _ensure_session_course(nombre):
+        data = session.get("materia_actual")
+    else:
+        data = session.get("materia_actual")
     if not data or data.get("nombre") != nombre:
         flash("No hay materia en progreso.", "error")
         return redirect(url_for("web.calcular"))
@@ -329,6 +425,10 @@ def materia_planes_post(nombre):
     # guarda el objetivo en sesión para reusar
     session["materia_actual"]["objetivo"] = objetivo
     session.modified = True
+    if is_auth():
+        pk = _current_user_pk()
+        if pk:
+            set_course_objetivo(user_id=pk, course_key=nombre, objetivo=float(objetivo))
 
     # lee hiperparámetros
     beam_width = int(request.form.get("beam_width", 64))
@@ -390,7 +490,10 @@ from .services.optimizer_beam_auto import optimize_auto_backend
 
 @web_bp.get("/materia/<nombre>/planes-auto")
 def materia_planes_auto(nombre):
-    data = session.get("materia_actual")
+    if not _ensure_session_course(nombre):
+        data = session.get("materia_actual")
+    else:
+        data = session.get("materia_actual")
     if not data or data.get("nombre") != nombre:
         flash("No hay materia en progreso.", "error")
         return redirect(url_for("web.calcular"))
@@ -411,7 +514,10 @@ from .services.optimizer_beam_auto import optimize_auto_backend
 
 @web_bp.post("/materia/<nombre>/planes-auto")
 def materia_planes_auto_post(nombre):
-    data = session.get("materia_actual")
+    if not _ensure_session_course(nombre):
+        data = session.get("materia_actual")
+    else:
+        data = session.get("materia_actual")
     if not data or data.get("nombre") != nombre:
         flash("No hay materia en progreso.", "error")
         return redirect(url_for("web.calcular"))
@@ -423,6 +529,10 @@ def materia_planes_auto_post(nombre):
 
     session["materia_actual"]["objetivo"] = objetivo
     session.modified = True
+    if is_auth():
+        pk = _current_user_pk()
+        if pk:
+            set_course_objetivo(user_id=pk, course_key=nombre, objetivo=float(objetivo))
 
     secciones = data["secciones"]
     labels = data["labels"]
