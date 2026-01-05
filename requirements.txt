@@ -14,5 +14,8 @@ alembic==1.17.2
 numpy==2.3.5
 scipy==1.16.3
 
+# --- DB driver (para URLs tipo postgresql+psycopg2://...) ---
+psycopg2-binary==2.9.10
+
 # --- Optional: only needed for scripts/train_isotonic.py ---
 scikit-learn==1.8.0
