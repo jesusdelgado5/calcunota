@@ -2,6 +2,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash
 from .services import grades
 import re
+from datetime import datetime
 from .services.observations import log_observed_score
 from .services.predictions import log_plan_predictions
 from .services.predictions import resolve_predictions_with_new_score
@@ -56,19 +57,96 @@ def slugify(name: str):
     s = re.sub(r'[^a-z0-9\-]', '', s)
     return s or "materia"
 
+def _period_label(sem_code: str) -> str:
+    sem_code = (sem_code or "").strip().upper()
+    if sem_code == "S2":
+        return "Segundo semestre"
+    if sem_code == "V":
+        return "Verano"
+    return "Primer semestre"
+
+def _period_code(sem_code: str, year: int) -> str:
+    sem_code = (sem_code or "").strip().upper()
+    if sem_code not in ("S1", "S2", "V"):
+        sem_code = "S1"
+    return f"{int(year)}-{sem_code}"
+
+def _get_course_key(nombre: str) -> str:
+    """
+    `course_key` debe distinguir la materia + periodo, para que los priors
+    y observaciones no se mezclen entre semestres/años.
+    """
+    data = session.get("materia_actual") or {}
+    if data.get("nombre") == nombre and data.get("course_key"):
+        return data["course_key"]
+    draft = session.get("draft_materia") or {}
+    if draft.get("nombre") == nombre and draft.get("course_key"):
+        return draft["course_key"]
+    # fallback compatibilidad
+    return nombre
+
 @web_bp.route("/calcular", methods=["GET", "POST"])
 def calcular():
+    now_year = datetime.now().year
+    years = list(range(now_year - 1, now_year + 6))
+    default_semestre = "S1"
+    default_anio = now_year
+
     if request.method == "POST":
         materia = (request.form.get("materia") or "").strip()
         if not materia:
             flash("Ingresa el nombre de la materia.", "error")
-            return render_template("calcular.html", active="calcular", is_auth=is_auth())
-        return redirect(url_for("web.configurar_materia", nombre=slugify(materia)))
-    return render_template("calcular.html", active="calcular", is_auth=is_auth())
+            return render_template(
+                "calcular.html",
+                active="calcular",
+                is_auth=is_auth(),
+                years=years,
+                default_semestre=default_semestre,
+                default_anio=default_anio,
+            )
+
+        sem = (request.form.get("periodo_semestre") or default_semestre).strip().upper()
+        try:
+            anio = int((request.form.get("periodo_anio") or default_anio))
+        except Exception:
+            anio = default_anio
+
+        nombre = slugify(materia)
+        periodo_code = _period_code(sem, anio)   # ej: 2026-S1
+        periodo_label = f"{_period_label(sem)} {anio}"
+        course_key = f"{nombre}:{periodo_code}"
+
+        # guardar "borrador" para la pantalla de configurar
+        session["draft_materia"] = {
+            "nombre": nombre,
+            "periodo": periodo_code,
+            "periodo_label": periodo_label,
+            "course_key": course_key,
+        }
+        session.modified = True
+
+        return redirect(url_for("web.configurar_materia", nombre=nombre))
+
+    return render_template(
+        "calcular.html",
+        active="calcular",
+        is_auth=is_auth(),
+        years=years,
+        default_semestre=default_semestre,
+        default_anio=default_anio,
+    )
 
 @web_bp.get("/calcular/<nombre>/configurar")
 def configurar_materia(nombre):
-    return render_template("configurar_materia.html", active="calcular", nombre=nombre, is_auth=is_auth())
+    draft = session.get("draft_materia") or {}
+    periodo_label = draft.get("periodo_label") if draft.get("nombre") == nombre else None
+    return render_template(
+        "configurar_materia.html",
+        active="calcular",
+        nombre=nombre,
+        periodo=periodo_label,
+        is_auth=is_auth(),
+    )
 
 @web_bp.post("/calcular/<nombre>/configurar")
 def configurar_materia_post(nombre):
@@ -112,12 +190,23 @@ def configurar_materia_post(nombre):
         flash("Agrega al menos una sección válida.", "error")
         return redirect(url_for("web.configurar_materia", nombre=nombre))
 
+    draft = session.get("draft_materia") or {}
+    periodo = draft.get("periodo") if draft.get("nombre") == nombre else None
+    periodo_label = draft.get("periodo_label") if draft.get("nombre") == nombre else None
+    course_key = draft.get("course_key") if draft.get("nombre") == nombre else None
+
     session["materia_actual"] = {
         "nombre": nombre,
         "labels": labels_clean,   # sólo UI
         "secciones": secciones,   # <-- lo que consumen tus funciones
-        "objetivo": None
+        "objetivo": None,
+        "periodo": periodo,
+        "periodo_label": periodo_label,
+        "course_key": course_key or nombre,
     }
+    # ya no se necesita el borrador
+    session.pop("draft_materia", None)
+    session.modified = True
     return redirect(url_for("web.captura_secciones", nombre=nombre, idx=0))
 
 @web_bp.get("/materia/<nombre>/captura")
@@ -132,6 +221,7 @@ def captura_secciones(nombre):
         "captura.html",
         active="calcular",
         nombre=nombre,
+        periodo=data.get("periodo_label"),
         idx=idx,
         label=data["labels"][idx],
         secciones=data["secciones"],
@@ -208,7 +298,7 @@ def captura_secciones_post(nombre):
     old_len = len(old_notas)
     new_len = len(notas_vals)
     if new_len > old_len:
-        course_key = nombre
+        course_key = _get_course_key(nombre)
         eval_label = labels[idx]
         for k in range(old_len, new_len):
             try:
@@ -243,6 +333,7 @@ def resumen_materia(nombre):
         "resumen.html",
         active="calcular",
         nombre=nombre,
+        periodo=data.get("periodo_label"),
         secciones=secs,
         labels=labels,
         completo=completo,
@@ -270,6 +361,7 @@ def materia_calcular(nombre):
         "resultado.html",
         active="calcular",
         nombre=nombre,
+        periodo=data.get("periodo_label"),
         resultado=resultado,
         is_auth=is_auth()
     )
@@ -298,6 +390,7 @@ def materia_planes(nombre):
         "planes_beam.html",
         active="calcular",
         nombre=nombre,
+        periodo=data.get("periodo_label"),
         nota_actual=round(nota_actual, 2),
         objetivo=objetivo,
         evals=evals_preview,  # para pintar filas con defaults
@@ -376,6 +469,7 @@ def materia_planes_post(nombre):
         "planes_beam.html",
         active="calcular",
         nombre=nombre,
+        periodo=data.get("periodo_label"),
         nota_actual=round(nota_actual, 2),
         objetivo=objetivo,
         evals=evals_objs,
@@ -400,6 +494,7 @@ def materia_planes_auto(nombre):
         "planes_beam_auto.html",
         active="calcular",
         nombre=nombre,
+        periodo=data.get("periodo_label"),
         nota_actual=round(nota_actual,2),
         objetivo=data.get("objetivo") or "",
         result=None,
@@ -431,7 +526,7 @@ def materia_planes_auto_post(nombre):
     res = optimize_auto_backend(
         secciones=secciones,
         labels=labels,
-        course_key=nombre,          # 💡 usamos tu slug como course_key
+        course_key=_get_course_key(nombre),
         nota_actual=nota_actual,
         objetivo=objetivo
     )
@@ -439,7 +534,7 @@ def materia_planes_auto_post(nombre):
     try:
         for p in (res.get("plans") or [])[:3]:
             style = p.get("style") or ""  # Conservador/Balanceado/Ambicioso si lo devuelves
-            log_plan_predictions(course_key=nombre, plan_style=style, details=p["details"])
+            log_plan_predictions(course_key=_get_course_key(nombre), plan_style=style, details=p["details"])
     except Exception as e:
         print("log_plan_predictions error:", e)
     
@@ -447,6 +542,7 @@ def materia_planes_auto_post(nombre):
         "planes_beam_auto.html",
         active="calcular",
         nombre=nombre,
+        periodo=data.get("periodo_label"),
         nota_actual=round(nota_actual,2),
         objetivo=objetivo,
         result=res,

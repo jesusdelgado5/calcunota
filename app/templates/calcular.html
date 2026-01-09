@@ -19,6 +19,32 @@
       class="rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
     />
 
+    <div class="grid sm:grid-cols-2 gap-3 mt-2">
+      <label class="text-sm text-slate-700">
+        Periodo
+        <select
+          name="periodo_semestre"
+          class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+        >
+          <option value="S1" {% if default_semestre == "S1" %}selected{% endif %}>Primer semestre</option>
+          <option value="S2" {% if default_semestre == "S2" %}selected{% endif %}>Segundo semestre</option>
+          <option value="V"  {% if default_semestre == "V" %}selected{% endif %}>Verano</option>
+        </select>
+      </label>
+
+      <label class="text-sm text-slate-700">
+        Año
+        <select
+          name="periodo_anio"
+          class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+        >
+          {% for y in years %}
+            <option value="{{ y }}" {% if default_anio == y %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
     <div class="flex items-center gap-3">
       <button
         class="rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-4 py-2"
