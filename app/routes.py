@@ -2,6 +2,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash
 from .services import grades
 import re
+from datetime import datetime
 from .services.observations import log_observed_score
 from .services.predictions import log_plan_predictions
 from .services.predictions import resolve_predictions_with_new_score
@@ -171,10 +172,37 @@ def slugify(name: str):
     s = re.sub(r'[^a-z0-9\-]', '', s)
     return s or "materia"
 
+def _period_label(sem_code: str) -> str:
+    sem_code = (sem_code or "").strip().upper()
+    if sem_code == "S2":
+        return "Segundo semestre"
+    if sem_code == "V":
+        return "Verano"
+    return "Primer semestre"
+
+def _period_code(sem_code: str, year: int) -> str:
+    sem_code = (sem_code or "").strip().upper()
+    if sem_code not in ("S1", "S2", "V"):
+        sem_code = "S1"
+    return f"{int(year)}-{sem_code}"
+
 @web_bp.route("/calcular", methods=["GET", "POST"])
 def calcular():
+    now_year = datetime.now().year
+    years = list(range(now_year - 1, now_year + 6))
+    default_semestre = "S1"
+    default_anio = now_year
+
     if request.method == "POST":
-        term = (request.form.get("term") or "default").strip() or "default"
+        sem = (request.form.get("periodo_semestre") or default_semestre).strip().upper()
+        try:
+            anio = int((request.form.get("periodo_anio") or default_anio))
+        except Exception:
+            anio = default_anio
+
+        term_code = _period_code(sem, anio)  # ej: 2026-S1
+        term_label = f"{_period_label(sem)} {anio}"
+
         subject_id = (request.form.get("subject_id") or "").strip()
         custom_name = (request.form.get("materia_custom") or "").strip()
         prof_id = (request.form.get("professor_id") or "").strip()
@@ -207,12 +235,13 @@ def calcular():
 
         # course_key incorpora term para evitar colisiones en URLs
         base_key = slugify(chosen_name)
-        term_key = slugify(term) if term and term != "default" else "default"
-        course_key = base_key if term_key == "default" else f"{base_key}-{term_key}"
+        term_key = slugify(term_code)
+        course_key = f"{base_key}-{term_key}"
 
         session["course_meta"] = {
             "course_name": chosen_name,
-            "term": term,
+            "term": term_code,
+            "term_label": term_label,
             "subject_id": chosen_subject_id,
             "professor_id": chosen_professor_id,
         }
@@ -241,6 +270,9 @@ def calcular():
         subjects=subjects,
         professors=professors,
         prof_map=prof_map,
+        years=years,
+        default_semestre=default_semestre,
+        default_anio=default_anio,
     )
 
 @web_bp.get("/calcular/<nombre>/configurar")

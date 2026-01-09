@@ -11,14 +11,31 @@
     action="{{ url_for('web.calcular') }}"
     class="mt-4 grid gap-3"
   >
-    <label class="text-sm text-slate-700">Semestre / periodo</label>
-    <input
-      name="term"
-      type="text"
-      placeholder="Ej. 2026-1 (opcional)"
-      value="default"
-      class="rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
-    />
+    <div class="grid sm:grid-cols-2 gap-3">
+      <label class="text-sm text-slate-700">
+        Periodo
+        <select
+          name="periodo_semestre"
+          class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+        >
+          <option value="S1" {% if default_semestre == "S1" %}selected{% endif %}>Primer semestre</option>
+          <option value="S2" {% if default_semestre == "S2" %}selected{% endif %}>Segundo semestre</option>
+          <option value="V"  {% if default_semestre == "V" %}selected{% endif %}>Verano</option>
+        </select>
+      </label>
+
+      <label class="text-sm text-slate-700">
+        Año
+        <select
+          name="periodo_anio"
+          class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+        >
+          {% for y in years or [] %}
+            <option value="{{ y }}" {% if default_anio == y %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
 
     <label class="text-sm text-slate-700">Materia</label>
     <select
