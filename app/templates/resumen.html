@@ -1,7 +1,12 @@
 {% extends "base.html" %} {% block title %}Resumen — {{ nombre }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
-  <h1 class="text-xl font-semibold text-slate-900">Resumen: {{ nombre }}</h1>
+  <h1 class="text-xl font-semibold text-slate-900">
+    Resumen: {{ nombre }}
+    {% if periodo %}
+      <span class="text-slate-500 font-normal">· {{ periodo }}</span>
+    {% endif %}
+  </h1>
   <p class="text-slate-600 mt-1">
     Verifica la configuración antes de calcular.
   </p>

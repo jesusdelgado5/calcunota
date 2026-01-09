@@ -5,7 +5,12 @@
   <div class="mb-4">
     <div class="flex items-center justify-between text-sm text-slate-600">
       <div>Sección {{ idx+1 }} de {{ secciones|length }}: <span class="font-medium text-slate-900">{{ label }}</span></div>
-      <div>{{ nombre }}</div>
+      <div class="text-right">
+        <div class="text-slate-900">{{ nombre }}</div>
+        {% if periodo %}
+          <div class="text-xs text-slate-500">{{ periodo }}</div>
+        {% endif %}
+      </div>
     </div>
     <div class="mt-2 h-2 rounded-full bg-slate-200 overflow-hidden">
       <div class="h-full bg-brand-600" style="width: {{ ((idx+1)/secciones|length*100)|round(2) }}%;"></div>
