@@ -13,7 +13,14 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import os
+import sys
 from typing import List
+
+# Asegura que `import app` funcione al ejecutar `python scripts/...`
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 from app.db import SessionLocal
 from app.db.models import Subject, ObservedEvalScore
