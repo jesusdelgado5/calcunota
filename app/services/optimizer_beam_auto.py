@@ -112,8 +112,17 @@ def _posterior_beta_from_scores(
 
 
 def _tail_prob_beta(s: int, alpha: float, beta: float, calibrator=None) -> float:
-    """P(Y ≥ s) con Y ~ Beta(α,β) mapeada a 0..100 y calibración opcional."""
-    p = float(_beta.sf(s / 100.0, alpha, beta))  # survival fn
+    """
+    P(Y ≥ s) con Y ~ Beta(α,β) mapeada a 0..100 y calibración opcional.
+
+    Importante: tratamos `s` como **nota entera** (0..100). Para evitar que 100 dé 0.0%
+    siempre (por ser extremo en continuo), usamos un umbral tipo "bin discreto":
+      P(Y ≥ s) ≈ P(Y > (s-0.5)/100)
+    """
+    # Umbral discreto (s entero). Para s=100 => 0.995 (da prob pequeña pero no cero).
+    x = (float(s) - 0.5) / 100.0
+    x = float(np.clip(x, 0.0, 1.0))
+    p = float(_beta.sf(x, alpha, beta))  # survival fn
     if calibrator is not None:
         p = calibrator(p)
     return max(1e-8, min(1.0, p))
@@ -246,7 +255,13 @@ def _select_candidates_boosted(e: EvalSpec, tail_map: Dict[int, float], diversif
     base = _select_candidates(e, tail_map, diversify)
 
     if boost or supergrid:
-        wants = [95, 100]
+        # Metas especiales.
+        # Regla: 100 se permite sobre todo en secciones "muy fáciles" o de bajo peso,
+        # para evitar planes irreales donde Semestral/Parciales se van a 100.
+        wants = [95]
+        allow_100 = (e.weight <= 0.06) or (e.eval_label in {"Asistencia", "Portafolio"})
+        if allow_100:
+            wants.append(100)
         if supergrid:
             # dejamos 95/100 “tal cual”
             base.extend(wants)
@@ -303,6 +318,8 @@ def _beam_search(
 
     rng = np.random.default_rng(12345)
 
+    exam_like = {"Semestral", "Parciales", "Quices"}
+
     for level, e in enumerate(E):
         new: List[Tuple[float, float, Dict[str, int]]] = []
         # candidatos (añade 95/100 sin encajar si supergrid)
@@ -315,6 +332,11 @@ def _beam_search(
                     continue
                 p_tail = _tail_value_for(e, s, pre_tail, ab_cal)
                 cost = -math.log(max(1e-12, p_tail))
+                # Penaliza metas extremas en evaluaciones "difíciles" para favorecer planes realistas
+                # (sin impedir que existan planes ambiciosos cuando el objetivo lo exige).
+                if e.eval_label in exam_like and s > 85:
+                    # creciente suave: 86..100 => penalidad 0..~0.9
+                    cost += 0.25 * ((s - 85) / 15.0) ** 2
                 if overshoot_penalty > 0:
                     over = max(0.0, sc2 - req)
                     if over > 0:
@@ -535,8 +557,25 @@ def optimize_auto_backend(
             return (0.0, 0.0)
         return (float(max(ts)), float(sum(ts) / len(ts)))
 
+    def _is_reasonable(p: Dict[str, Any], *, min_tail: float) -> bool:
+        # Evita planes donde alguna meta tiene prob prácticamente cero.
+        for d in (p.get("details") or []):
+            try:
+                if float(d.get("p_tail", 0.0)) < float(min_tail):
+                    return False
+            except Exception:
+                return False
+        return True
+
+    # Primero intentamos planes "razonables"; si no alcanza para 3, relajamos umbral.
+    candidates = [p for p in enriched if _is_reasonable(p, min_tail=0.02)]
+    if len(candidates) < 3:
+        candidates = [p for p in enriched if _is_reasonable(p, min_tail=0.01)]
+    if len(candidates) < 3:
+        candidates = enriched
+
     highlighted = sorted(
-        enriched,
+        candidates,
         key=lambda p: (-float(p.get("mc_prob", 0.0)),) + _plan_difficulty(p),
     )[:3]
     for i, p in enumerate(highlighted):
