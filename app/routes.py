@@ -18,6 +18,7 @@ from .services.auth import authenticate_user, register_user, change_password, is
 from app.db import SessionLocal
 from app.db.models import Subject, Professor, SubjectProfessor
 from .services.goal_grades import grade_to_objective
+from .services.sections import SECTION_TYPES, normalize_section_label
 
 
 
@@ -172,6 +173,24 @@ def slugify(name: str):
     s = re.sub(r'[^a-z0-9\-]', '', s)
     return s or "materia"
 
+
+def _model_key_from_meta(course_key: str, meta: dict) -> str:
+    """
+    "Key" para aprendizaje del modelo (priors/observaciones) que no se fragmente por término/usuario.
+    - Si la materia viene del catálogo y tiene `code`: usa subj:<code>
+    - Si no: fallback al course_key (mejor que nada)
+    """
+    subject_id = meta.get("subject_id")
+    if subject_id:
+        db = SessionLocal()
+        try:
+            subj = db.query(Subject).filter(Subject.id == int(subject_id)).one_or_none()
+            if subj and subj.code:
+                return f"subj:{str(subj.code)}"
+        finally:
+            db.close()
+    return str(course_key)
+
 def _period_label(sem_code: str) -> str:
     sem_code = (sem_code or "").strip().upper()
     if sem_code == "S2":
@@ -295,6 +314,7 @@ def configurar_materia(nombre):
         nombre=nombre,
         is_auth=is_auth(),
         recommended=recommended,
+        section_types=SECTION_TYPES,
         term=(meta.get("term") or "default"),
     )
 
@@ -306,14 +326,14 @@ def configurar_materia_post(nombre):
     - secciones: lista de dicts EXACTAMENTE como tu .py:
         {'porcentaje': 0..1, 'num_notas': int, 'notas_obtenidas': []}
     """
-    labels = request.form.getlist("sec_nombre[]")           # p.ej. ["Parciales","Semestral",...]
+    labels = request.form.getlist("sec_tipo[]")             # p.ej. ["Parciales","Semestral",...]
     porcentajes = request.form.getlist("sec_porcentaje[]")  # p.ej. ["20","30","50"] o "0.2"...
     totales = request.form.getlist("sec_num_notas[]")       # p.ej. ["4","1","5"]
 
     secciones = []
     labels_clean = []
     for lbl, p, t in zip(labels, porcentajes, totales):
-        lbl = (lbl or "").strip()
+        lbl = normalize_section_label(lbl)
         if not lbl:
             continue
         try:
@@ -504,6 +524,8 @@ def captura_secciones_post(nombre):
 
     # 4) *** registra SOLO las notas NUEVAS como observadas ***
     from .services.grades import normalize_nota  # importa aquí para evitar ciclos
+    meta = session.get("course_meta") or {}
+    model_key = _model_key_from_meta(nombre, meta)
     old_len = len(old_notas)
     new_len = len(notas_vals)
     if new_len > old_len:
@@ -512,7 +534,8 @@ def captura_secciones_post(nombre):
         for k in range(old_len, new_len):
             try:
                 s_val_norm = normalize_nota(notas_vals[k])  # 0..100
-                log_observed_score(course_key, eval_label, s_val_norm)
+                # Observaciones para priors/calibración: agregadas por materia (código), no por término
+                log_observed_score(model_key, eval_label, s_val_norm)
                 resolve_predictions_with_new_score(course_key, eval_label, s_val_norm)
             except Exception as e:
                 print("log_observed_score error:", e)
@@ -770,16 +793,19 @@ def materia_planes_auto_post(nombre):
     labels = data["labels"]
     nota_actual = calcular_nota_actual(secciones)
 
+    meta = session.get("course_meta") or {}
+    model_key = _model_key_from_meta(nombre, meta)
     res = optimize_auto_backend(
         secciones=secciones,
         labels=labels,
-        course_key=nombre,          # 💡 usamos tu slug como course_key
+        course_key=nombre,          # instancia (por usuario/term) para logging UI
+        model_key=model_key,        # key agregado para priors/calibración
         nota_actual=nota_actual,
         objetivo=objetivo
     )
     
     try:
-        for p in (res.get("plans") or [])[:3]:
+        for p in (res.get("highlighted_plans") or res.get("plans") or [])[:3]:
             style = p.get("style") or ""  # Conservador/Balanceado/Ambicioso si lo devuelves
             log_plan_predictions(course_key=nombre, plan_style=style, details=p["details"])
     except Exception as e:

@@ -112,12 +112,19 @@ endblock %} {% block content %}
   function row() {
     const d = document.createElement("div");
     d.className = "rounded-xl border border-slate-200 bg-white p-3";
+    const types = {{ (section_types or [])|tojson }};
+    const options = (Array.isArray(types) ? types : []).map((t) => {
+      const esc = String(t).replaceAll('"', "&quot;");
+      return `<option value="${esc}">${esc}</option>`;
+    }).join("");
     d.innerHTML = `
       <div class="grid sm:grid-cols-12 gap-3">
         <div class="sm:col-span-4">
-          <label class="text-sm text-slate-700">Nombre sección</label>
-          <input name="sec_nombre[]" type="text" placeholder="Parciales"
+          <label class="text-sm text-slate-700">Tipo de sección</label>
+          <select name="sec_tipo[]"
                  class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500">
+            ${options}
+          </select>
         </div>
         <div class="sm:col-span-4">
           <label class="text-sm text-slate-700">Porcentaje (%)</label>
@@ -156,7 +163,7 @@ endblock %} {% block content %}
       rows.innerHTML = "";
       rec.forEach((s) => {
         const d = row();
-        const name = d.querySelector('input[name="sec_nombre[]"]');
+        const name = d.querySelector('select[name="sec_tipo[]"]');
         const pct = d.querySelector('input[name="sec_porcentaje[]"]');
         const n = d.querySelector('input[name="sec_num_notas[]"]');
         if (name) name.value = (s.label || "");
