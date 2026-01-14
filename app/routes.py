@@ -620,132 +620,12 @@ def materia_calcular(nombre):
         is_auth=is_auth()
     )
 
-# --- NUEVO: Optimización con Beam + MC ---
-from .services.grades import calcular_nota_actual  # ya lo tienes
-from .services.optimizer_beam import optimize_from_secciones, build_evals_from_secciones
-
-@web_bp.get("/materia/<nombre>/planes")
-def materia_planes(nombre):
-    if not _ensure_session_course(nombre):
-        data = session.get("materia_actual")
-    else:
-        data = session.get("materia_actual")
-    if not data or data.get("nombre") != nombre:
-        flash("No hay materia en progreso.", "error")
-        return redirect(url_for("web.calcular"))
-
-    secciones = data["secciones"]
-    labels = data["labels"]
-    # Pre-calcular nota actual y evals prefill (para mostrar μ, σ y grids)
-    nota_actual = calcular_nota_actual(secciones)
-    evals_preview = build_evals_from_secciones(secciones, labels)
-
-    # objetivo prellenado si ya se usó antes
-    objetivo = data.get("objetivo") or ""
-
-    return render_template(
-        "planes_beam.html",
-        active="calcular",
-        nombre=nombre,
-        nota_actual=round(nota_actual, 2),
-        objetivo=objetivo,
-        evals=evals_preview,  # para pintar filas con defaults
-        is_auth=is_auth(),
-        result=None,
-        error=None
-    )
-
-@web_bp.post("/materia/<nombre>/planes")
-def materia_planes_post(nombre):
-    if not _ensure_session_course(nombre):
-        data = session.get("materia_actual")
-    else:
-        data = session.get("materia_actual")
-    if not data or data.get("nombre") != nombre:
-        flash("No hay materia en progreso.", "error")
-        return redirect(url_for("web.calcular"))
-
-    secciones = data["secciones"]
-    labels = data["labels"]
-    nota_actual = calcular_nota_actual(secciones)
-
-    try:
-        objetivo = float(request.form.get("objetivo", "").strip())
-    except:
-        objetivo = None
-
-    if objetivo is None:
-        flash("Debes indicar un objetivo de nota final.", "error")
-        return redirect(url_for("web.materia_planes", nombre=nombre))
-
-    # guarda el objetivo en sesión para reusar
-    session["materia_actual"]["objetivo"] = objetivo
-    session.modified = True
-    if is_auth():
-        pk = _current_user_pk()
-        if pk:
-            set_course_objetivo(user_id=pk, course_key=nombre, objetivo=float(objetivo))
-
-    # lee hiperparámetros
-    beam_width = int(request.form.get("beam_width", 64))
-    max_nodes = int(request.form.get("max_nodes_per_level", 256))
-    diversify = int(request.form.get("diversify_per_eval", 6))
-    mc_samples = int(request.form.get("mc_samples", 20000))
-
-    # Recontruye evals desde secciones y aplica overrides del formulario (μ,σ, grid)
-    evals_objs = build_evals_from_secciones(secciones, labels)
-    # Map para sobrescribir
-    form_ids = request.form.getlist("eval_id[]")
-    form_mu = request.form.getlist("mu[]")
-    form_sigma = request.form.getlist("sigma[]")
-    form_min = request.form.getlist("s_min[]")
-    form_max = request.form.getlist("s_max[]")
-    form_step = request.form.getlist("s_step[]")
-
-    overrides = {eid: i for i, eid in enumerate(form_ids)}
-    for e in evals_objs:
-        if e.eval_id in overrides:
-            i = overrides[e.eval_id]
-            try:
-                e.mu = float(form_mu[i])
-                e.sigma = float(form_sigma[i])
-                e.s_min = int(form_min[i])
-                e.s_max = int(form_max[i])
-                e.s_step = max(1, int(form_step[i]))
-            except Exception:
-                pass  # deja los defaults si hay error de parseo
-
-    # Ejecuta optimización
-    result = optimize_from_secciones(
-        secciones=secciones,
-        labels=labels,
-        nota_actual=nota_actual,
-        objetivo=float(objetivo),
-        beam_width=beam_width,
-        max_nodes_per_level=max_nodes,
-        diversify_per_eval=diversify,
-        mc_samples=mc_samples,
-        seed=123
-    )
-
-    return render_template(
-        "planes_beam.html",
-        active="calcular",
-        nombre=nombre,
-        nota_actual=round(nota_actual, 2),
-        objetivo=objetivo,
-        evals=evals_objs,
-        is_auth=is_auth(),
-        result=result,
-        error=None
-    )
-
-# --- NUEVO: Optimización automática (sin hiperparámetros en UI) ---
+# --- Proyección (única opción) ---
 from .services.grades import calcular_nota_actual
 from .services.optimizer_beam_auto import optimize_auto_backend, evaluate_plan_auto
 
-@web_bp.get("/materia/<nombre>/planes-auto")
-def materia_planes_auto(nombre):
+@web_bp.get("/materia/<nombre>/proyectar")
+def materia_proyectar(nombre):
     if not _ensure_session_course(nombre):
         data = session.get("materia_actual")
     else:
@@ -759,17 +639,14 @@ def materia_planes_auto(nombre):
         "planes_beam_auto.html",
         active="calcular",
         nombre=nombre,
-        nota_actual=round(nota_actual,2),
+        nota_actual=round(nota_actual, 2),
         objetivo=data.get("objetivo") or "",
         result=None,
-        is_auth=is_auth()
+        is_auth=is_auth(),
     )
 
-from .services.grades import calcular_nota_actual
-from .services.optimizer_beam_auto import optimize_auto_backend
-
-@web_bp.post("/materia/<nombre>/planes-auto")
-def materia_planes_auto_post(nombre):
+@web_bp.post("/materia/<nombre>/proyectar")
+def materia_proyectar_post(nombre):
     if not _ensure_session_course(nombre):
         data = session.get("materia_actual")
     else:
@@ -777,10 +654,11 @@ def materia_planes_auto_post(nombre):
     if not data or data.get("nombre") != nombre:
         flash("No hay materia en progreso.", "error")
         return redirect(url_for("web.calcular"))
+
     objetivo = grade_to_objective(request.form.get("objetivo_grade") or "")
     if objetivo is None:
         flash("Objetivo inválido.", "error")
-        return redirect(url_for("web.materia_planes_auto", nombre=nombre))
+        return redirect(url_for("web.materia_proyectar", nombre=nombre))
 
     session["materia_actual"]["objetivo"] = objetivo
     session.modified = True
@@ -820,6 +698,27 @@ def materia_planes_auto_post(nombre):
         result=res,
         is_auth=is_auth()
     )
+
+
+# --- Compatibilidad: rutas antiguas → Proyectar Materia ---
+@web_bp.get("/materia/<nombre>/planes")
+def materia_planes(nombre):
+    return redirect(url_for("web.materia_proyectar", nombre=nombre), code=302)
+
+
+@web_bp.post("/materia/<nombre>/planes")
+def materia_planes_post(nombre):
+    return redirect(url_for("web.materia_proyectar", nombre=nombre), code=302)
+
+
+@web_bp.get("/materia/<nombre>/planes-auto")
+def materia_planes_auto(nombre):
+    return redirect(url_for("web.materia_proyectar", nombre=nombre), code=302)
+
+
+@web_bp.post("/materia/<nombre>/planes-auto")
+def materia_planes_auto_post(nombre):
+    return redirect(url_for("web.materia_proyectar", nombre=nombre), code=302)
 
 
 @web_bp.post("/materia/<nombre>/plan-eval")
