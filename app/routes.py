@@ -1,5 +1,5 @@
 # app/routes.py
-from flask import Blueprint, render_template, request, redirect, url_for, session, flash
+from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify
 from .services import grades
 import re
 from datetime import datetime
@@ -742,7 +742,7 @@ def materia_planes_post(nombre):
 
 # --- NUEVO: Optimización automática (sin hiperparámetros en UI) ---
 from .services.grades import calcular_nota_actual
-from .services.optimizer_beam_auto import optimize_auto_backend
+from .services.optimizer_beam_auto import optimize_auto_backend, evaluate_plan_auto
 
 @web_bp.get("/materia/<nombre>/planes-auto")
 def materia_planes_auto(nombre):
@@ -820,3 +820,46 @@ def materia_planes_auto_post(nombre):
         result=res,
         is_auth=is_auth()
     )
+
+
+@web_bp.post("/materia/<nombre>/plan-eval")
+def materia_plan_eval(nombre):
+    """
+    Endpoint JSON para recalcular un plan personalizado (metas editadas).
+    Espera JSON: { "targets": {"sec1_nota2": 85, ...}, "mc_samples": 8000 }
+    Usa secciones/labels/objetivo desde la sesión (materia_actual).
+    """
+    if not _ensure_session_course(nombre):
+        data = session.get("materia_actual")
+    else:
+        data = session.get("materia_actual")
+    if not data or data.get("nombre") != nombre:
+        return jsonify({"ok": False, "error": "No hay materia en progreso."}), 400
+
+    payload = request.get_json(force=True, silent=True) or {}
+    targets = payload.get("targets") or {}
+    try:
+        mc_samples = int(payload.get("mc_samples", 8000))
+    except Exception:
+        mc_samples = 8000
+    mc_samples = max(2000, min(40000, mc_samples))
+
+    secciones = data["secciones"]
+    labels = data["labels"]
+    nota_actual = calcular_nota_actual(secciones)
+    objetivo = float(data.get("objetivo") or 0.0)
+
+    meta = session.get("course_meta") or {}
+    model_key = _model_key_from_meta(nombre, meta)
+
+    res = evaluate_plan_auto(
+        secciones=secciones,
+        labels=labels,
+        model_key=model_key,
+        nota_actual=float(nota_actual),
+        objetivo=float(objetivo),
+        targets=targets,
+        mc_samples=mc_samples,
+        seed=123,
+    )
+    return jsonify(res)

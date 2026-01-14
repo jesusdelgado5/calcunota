@@ -422,6 +422,102 @@ def _prob_plan_mc(plan: Dict[str, Any], samples: Dict[str, np.ndarray]) -> float
     return float(np.mean(ok))
 
 
+def difficulty_label(p: float) -> str:
+    """
+    Etiqueta simple de dificultad basada en probabilidad de cumplir el plan.
+    (Umbrales ajustables; se puede calibrar con feedback de usuarios.)
+    """
+    try:
+        p = float(p)
+    except Exception:
+        p = 0.0
+    if p >= 0.80:
+        return "Fácil"
+    if p >= 0.60:
+        return "Alcanzable"
+    if p >= 0.40:
+        return "Promedio"
+    if p >= 0.20:
+        return "Difícil"
+    return "Legendario"
+
+
+def evaluate_plan_auto(
+    *,
+    secciones: List[Dict[str, Any]],
+    labels: List[str],
+    model_key: str,
+    nota_actual: float,
+    objetivo: float,
+    targets: Dict[str, int],
+    mc_samples: int = 8000,
+    seed: int = 123,
+) -> Dict[str, Any]:
+    """
+    Recalcula métricas del plan cuando el usuario edita metas.
+    Devuelve:
+    - prob de cumplir plan (MC correlacionado)
+    - nota final si cumple metas
+    - bool llega_objetivo
+    - dificultad
+    - detalle por evaluación (eval_id, name, target, p_tail)
+    """
+    evals = build_evals_trust_with_priors(model_key, labels, secciones)
+    if not evals:
+        return {
+            "ok": False,
+            "message": "No hay evaluaciones pendientes.",
+            "plan": None,
+        }
+
+    # Normaliza targets: solo evals existentes, clamp 0..100
+    t_clean: Dict[str, int] = {}
+    for e in evals:
+        raw = targets.get(e.eval_id, None)
+        if raw is None:
+            # default conservador: usa mínimo del grid (permite UI partial updates sin romper)
+            raw = e.s_min
+        try:
+            s = int(raw)
+        except Exception:
+            s = int(e.s_min)
+        t_clean[e.eval_id] = int(max(0, min(100, s)))
+
+    calibrators = {e.eval_label: get_calibrator(e.course_key, e.eval_label) for e in evals}
+    details = []
+    sum_contrib = 0.0
+    for e in evals:
+        s = t_clean[e.eval_id]
+        sum_contrib += float(e.weight) * float(s)
+        p_tail = _tail_prob_beta(s, e.alpha, e.beta, calibrator=calibrators.get(e.eval_label))
+        details.append(
+            {
+                "eval_id": e.eval_id,
+                "name": e.name,
+                "target": int(s),
+                "p_tail": round(float(p_tail), 4),
+            }
+        )
+
+    nota_final_si_cumple = float(nota_actual) + float(sum_contrib)
+    llega_objetivo = bool(nota_final_si_cumple + 1e-9 >= float(objetivo))
+
+    samples = _samples_beta_two_factor(evals, N=int(mc_samples), seed=int(seed))
+    plan_prob = float(_prob_plan_mc({"targets": t_clean}, samples))
+
+    return {
+        "ok": True,
+        "plan": {
+            "targets": t_clean,
+            "sum_contrib": round(float(sum_contrib), 2),
+            "nota_final_si_cumple": round(float(nota_final_si_cumple), 2),
+            "llega_objetivo": llega_objetivo,
+            "mc_prob": round(float(plan_prob), 4),
+            "difficulty": difficulty_label(plan_prob),
+            "details": details,
+        },
+    }
+
 # -------------------- Diversidad + etiquetas --------------------
 def _diversity_filter(plans: List[Dict[str, Any]], evals: List[EvalSpec], *, min_l1: int = 18, top: int = 5):
     selected: List[Dict[str, Any]] = []
