@@ -1,7 +1,14 @@
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import sessionmaker, scoped_session
+
+# Cargar .env también para scripts (seed/retrain) que importan SessionLocal
+_BASE_DIR = Path(__file__).resolve().parents[2]  # repo root
+load_dotenv(dotenv_path=_BASE_DIR / ".env")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///calcu.db")
 

@@ -37,7 +37,9 @@ def upsert_subjects() -> None:
             _ = db.query(Subject).limit(1).all()
         except Exception as e:
             msg = str(e).lower()
-            if "no such table" in msg and "subject" in msg:
+            # SQLite: "no such table: subject"
+            # Postgres: 'relation "subject" does not exist'
+            if (("no such table" in msg and "subject" in msg) or ("relation" in msg and "does not exist" in msg and "subject" in msg)):
                 raise RuntimeError(
                     "No existe la tabla 'subject'. Primero ejecuta migraciones:\n"
                     "  python -m alembic upgrade head\n"
