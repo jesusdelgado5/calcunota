@@ -43,6 +43,11 @@ class Subject(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True, index=True)
     name: Mapped[str] = mapped_column(String(256), nullable=False, unique=True, index=True)
+    # Metadatos académicos (opcionales)
+    credits: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Estadísticos globales (0..100) para priors de materia / referencia
+    mu_mean: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sigma_mean: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     recommended_config: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
 
 

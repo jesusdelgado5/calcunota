@@ -10,6 +10,7 @@ from scipy.stats import beta as _beta, norm
 from app.services.priors import get_eval_prior
 from app.services.calibration import get_calibrator
 from app.services.grades import normalize_nota
+from app.services.sections import normalize_section_label
 
 
 # ----------------------------- Datos -----------------------------
@@ -140,7 +141,7 @@ def _adaptive_grid_params(
 
 # -------------------- Construcción de evaluaciones --------------------
 def build_evals_trust_with_priors(
-    course_key: str,
+    model_key: str,
     labels: List[str],
     secciones: List[Dict[str, Any]],
     default_min: int = 50,
@@ -163,8 +164,9 @@ def build_evals_trust_with_priors(
 
         w_item = W / float(m)
         label = labels[i] if i < len(labels) else f"Sección {i+1}"
+        label = normalize_section_label(label)
 
-        mu0, s0 = get_eval_prior(course_key, label)
+        mu0, s0 = get_eval_prior(model_key, label)
         a, b, mu_hat, sigma_hat = _posterior_beta_from_scores(
             notas_norm, mu_prior=mu0, sigma_prior=s0, prior_strength=1.0
         )
@@ -180,7 +182,7 @@ def build_evals_trust_with_priors(
                 weight=w_item, mu=mu_hat, sigma=sigma_hat,
                 alpha=a, beta=b,
                 s_min=gmin, s_max=gmax, s_step=gstep,
-                course_key=course_key, eval_label=label
+                course_key=model_key, eval_label=label
             ))
 
     return evals
@@ -342,17 +344,38 @@ def _beam_search(
 
 
 # -------------------- MC: Beta con cópula Gaussiana --------------------
-def _samples_beta_copula(evals: List[EvalSpec], N: int = 20000, seed: int = 123, rho: float = 0.35) -> Dict[str, np.ndarray]:
-    """Muestras correlacionadas: mismo Z compartido para todas las evals."""
-    rho = float(np.clip(rho, 0.0, 0.95))
+def _samples_beta_two_factor(
+    evals: List[EvalSpec],
+    N: int = 20000,
+    seed: int = 123,
+    rho_exam: float = 0.45,
+    rho_work: float = 0.35,
+) -> Dict[str, np.ndarray]:
+    """
+    Muestras correlacionadas con 2 factores latentes:
+    - "examen": Semestral / Parciales / Quices
+    - "trabajo": Laboratorios / Tareas / Proyectos / Portafolio / Asistencia / Otros
+
+    Esto mantiene correlación positiva global, pero más fuerte dentro de cada grupo.
+    """
+    rho_exam = float(np.clip(rho_exam, 0.0, 0.95))
+    rho_work = float(np.clip(rho_work, 0.0, 0.95))
     rng = np.random.default_rng(seed)
-    Z = rng.standard_normal(size=N).astype(np.float32)  # factor común
+    Z_exam = rng.standard_normal(size=N).astype(np.float32)
+    Z_work = rng.standard_normal(size=N).astype(np.float32)
+
+    exam_types = {"Semestral", "Parciales", "Quices"}
 
     out: Dict[str, np.ndarray] = {}
     for e in evals:
         eps = rng.standard_normal(size=N).astype(np.float32)
-        latent = rho * Z + np.sqrt(max(1e-9, 1 - rho**2)) * eps
-        U = norm.cdf(latent)  # vectorizado
+        is_exam = (e.eval_label in exam_types)
+        a = rho_exam if is_exam else 0.15
+        b = 0.15 if is_exam else rho_work
+        # asegura var residual >= 0
+        resid = max(1e-9, 1.0 - a * a - b * b)
+        latent = a * Z_exam + b * Z_work + np.sqrt(resid) * eps
+        U = norm.cdf(latent)
         U = np.clip(U, 1e-6, 1 - 1e-6)
         Y = _beta.ppf(U, e.alpha, e.beta).astype(np.float32) * 100.0
         out[e.eval_id] = np.clip(Y, 0.0, 100.0)
@@ -408,6 +431,7 @@ def optimize_auto_backend(
     secciones: List[Dict[str, Any]],
     labels: List[str],
     course_key: str,
+    model_key: str,
     nota_actual: float,
     objetivo: float,
     *,
@@ -421,7 +445,7 @@ def optimize_auto_backend(
     default_step: int = 5
 ) -> Dict[str, Any]:
     evals = build_evals_trust_with_priors(
-        course_key, labels, secciones,
+        model_key, labels, secciones,
         default_min=default_min, final_min=final_min, default_step=default_step
     )
     if not evals:
@@ -470,8 +494,7 @@ def optimize_auto_backend(
         )
 
     # 5) Monte Carlo correlacionado
-    rho = 0.35
-    samples = _samples_beta_copula(evals, N=mc_samples, seed=seed, rho=rho)
+    samples = _samples_beta_two_factor(evals, N=mc_samples, seed=seed)
     baseline = _prob_obj_mc(nota_actual, objetivo, evals, samples)
 
     # 6) Enriquecer resultados y ordenar por MC
@@ -487,6 +510,7 @@ def optimize_auto_backend(
             details.append({
                 "eval_id": e.eval_id,
                 "name": e.name,
+                "eval_label": e.eval_label,
                 "weight": round(e.weight, 4),
                 "mu": round(e.mu, 2),
                 "sigma": round(e.sigma, 2),
@@ -503,7 +527,69 @@ def optimize_auto_backend(
         })
     enriched.sort(key=lambda d: d["mc_prob"], reverse=True)
 
-    # 7) Diversidad y etiquetas
+    # 7) Planes destacados (3 más eficientes)
+    def _plan_difficulty(p: Dict[str, Any]) -> Tuple[float, float]:
+        # menor es "más fácil": (max_target, mean_target)
+        ts = [int(d.get("target", 0)) for d in (p.get("details") or [])]
+        if not ts:
+            return (0.0, 0.0)
+        return (float(max(ts)), float(sum(ts) / len(ts)))
+
+    highlighted = sorted(
+        enriched,
+        key=lambda p: (-float(p.get("mc_prob", 0.0)),) + _plan_difficulty(p),
+    )[:3]
+    for i, p in enumerate(highlighted):
+        p["style"] = "Destacado"
+        p["rank"] = i + 1
+
+    # 8) Categorías (1 plan por categoría, expandible en UI)
+    pool = enriched[:50]  # suficiente diversidad sin costo grande
+
+    def _avg_target_for_label(p: Dict[str, Any], lbl: str) -> float:
+        ts = [int(d["target"]) for d in (p.get("details") or []) if d.get("eval_label") == lbl]
+        return float(sum(ts) / len(ts)) if ts else float("-inf")
+
+    def _pick_best(plans: List[Dict[str, Any]], score_fn):
+        best = None
+        best_score = None
+        for p in plans:
+            sc = score_fn(p)
+            if best is None or sc > best_score:
+                best, best_score = p, sc
+        return best
+
+    # umbral suave para evitar categorías con planes imposibles
+    def _ok(p: Dict[str, Any]) -> bool:
+        return float(p.get("mc_prob", 0.0)) >= 0.15
+
+    cat_sem = _pick_best([p for p in pool if _ok(p)], lambda p: (_avg_target_for_label(p, "Semestral"), p["mc_prob"]))
+    cat_par = _pick_best([p for p in pool if _ok(p)], lambda p: (_avg_target_for_label(p, "Parciales"), p["mc_prob"]))
+    cat_lab = _pick_best([p for p in pool if _ok(p)], lambda p: (_avg_target_for_label(p, "Laboratorios"), p["mc_prob"]))
+
+    def _balance_score(p: Dict[str, Any]) -> float:
+        ts = [int(d.get("target", 0)) for d in (p.get("details") or [])]
+        if not ts:
+            return float("-inf")
+        mean = sum(ts) / len(ts)
+        var = sum((t - mean) ** 2 for t in ts) / max(1, len(ts))
+        max_t = max(ts)
+        # mayor score = más balanceado y moderado, con buena prob
+        return float(p.get("mc_prob", 0.0)) - 0.0025 * float(var) - 0.002 * float(max_t)
+
+    cat_bal = _pick_best(pool, _balance_score)
+
+    category_plans = []
+    if cat_sem:
+        category_plans.append({"key": "semestral_alto", "title": "Plan con nota alta en semestral", "plan": cat_sem})
+    if cat_par:
+        category_plans.append({"key": "parciales_alto", "title": "Plan con nota alta en parciales", "plan": cat_par})
+    if cat_lab:
+        category_plans.append({"key": "labs_alto", "title": "Plan con nota alta en laboratorios", "plan": cat_lab})
+    if cat_bal:
+        category_plans.append({"key": "balanceado", "title": "Plan balanceado sin picos", "plan": cat_bal})
+
+    # 9) Diversidad (para seguir ofreciendo alternativas si el usuario explora)
     diverse = _diversity_filter(enriched, evals, min_l1=18, top=5)
     out_plans: List[Dict[str, Any]] = []
     for p, tag, _ in diverse:
@@ -511,4 +597,9 @@ def optimize_auto_backend(
         q["style"] = tag
         out_plans.append(q)
 
-    return {"baseline_prob": round(baseline, 4), "plans": out_plans}
+    return {
+        "baseline_prob": round(baseline, 4),
+        "highlighted_plans": highlighted,
+        "category_plans": category_plans,
+        "plans": out_plans,  # compat/debug
+    }
