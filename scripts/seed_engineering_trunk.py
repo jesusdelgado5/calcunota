@@ -31,6 +31,19 @@ from app.services.trunk_probabilities import TRUNK_SUBJECTS, sample_score
 def upsert_subjects() -> None:
     db = SessionLocal()
     try:
+        # Si no se han corrido migraciones, la tabla `subject` no existe.
+        # Mostramos un error amigable con el comando correcto.
+        try:
+            _ = db.query(Subject).limit(1).all()
+        except Exception as e:
+            msg = str(e).lower()
+            if "no such table" in msg and "subject" in msg:
+                raise RuntimeError(
+                    "No existe la tabla 'subject'. Primero ejecuta migraciones:\n"
+                    "  python -m alembic upgrade head\n"
+                    "y luego vuelve a correr este seed."
+                ) from e
+            raise
         for s in TRUNK_SUBJECTS:
             row = db.query(Subject).filter(Subject.code == s.code).one_or_none()
             if not row:
