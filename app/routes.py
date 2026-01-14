@@ -13,6 +13,8 @@ from .services.user_progress import (
     save_section_notes,
     set_course_objetivo,
     upsert_course_config,
+    save_course_plan,
+    load_course_saved_plan,
 )
 from .services.auth import authenticate_user, register_user, change_password, issue_reset_token, reset_password
 from app.db import SessionLocal
@@ -665,7 +667,8 @@ def materia_proyectar_post(nombre):
     if is_auth():
         pk = _current_user_pk()
         if pk:
-            set_course_objetivo(user_id=pk, course_key=nombre, objetivo=float(objetivo))
+            term = (data.get("term") or (session.get("course_meta") or {}).get("term") or "default")
+            set_course_objetivo(user_id=pk, course_key=nombre, objetivo=float(objetivo), term=term)
 
     secciones = data["secciones"]
     labels = data["labels"]
@@ -681,6 +684,29 @@ def materia_proyectar_post(nombre):
         nota_actual=nota_actual,
         objetivo=objetivo
     )
+
+    # Si existe un plan guardado, lo evaluamos con el objetivo actual para mostrarlo como "Mi plan"
+    if is_auth():
+        pk = _current_user_pk()
+        if pk:
+            term = (data.get("term") or meta.get("term") or "default")
+            saved = load_course_saved_plan(user_id=pk, course_key=nombre, term=term)
+            if saved and isinstance(saved.get("targets"), dict):
+                try:
+                    evald = evaluate_plan_auto(
+                        secciones=secciones,
+                        labels=labels,
+                        model_key=model_key,
+                        nota_actual=float(nota_actual),
+                        objetivo=float(objetivo),
+                        targets=saved.get("targets") or {},
+                        mc_samples=8000,
+                        seed=123,
+                    )
+                    if evald.get("ok") and evald.get("plan"):
+                        res["saved_plan"] = evald["plan"]
+                except Exception:
+                    pass
     
     try:
         for p in (res.get("highlighted_plans") or res.get("plans") or [])[:3]:
@@ -762,3 +788,63 @@ def materia_plan_eval(nombre):
         seed=123,
     )
     return jsonify(res)
+
+
+@web_bp.post("/materia/<nombre>/guardar-plan")
+def materia_guardar_plan(nombre):
+    """
+    Guarda el plan personalizado en el perfil del usuario (UserCourse.saved_plan).
+    Espera JSON: { "targets": {...} }
+    """
+    if not is_auth():
+        return jsonify({"ok": False, "error": "Debes iniciar sesión para guardar el plan."}), 401
+    pk = _current_user_pk()
+    if not pk:
+        return jsonify({"ok": False, "error": "No se pudo identificar el usuario."}), 401
+
+    if not _ensure_session_course(nombre):
+        data = session.get("materia_actual")
+    else:
+        data = session.get("materia_actual")
+    if not data or data.get("nombre") != nombre:
+        return jsonify({"ok": False, "error": "No hay materia en progreso."}), 400
+
+    payload = request.get_json(force=True, silent=True) or {}
+    targets = payload.get("targets") or {}
+
+    secciones = data["secciones"]
+    labels = data["labels"]
+    nota_actual = calcular_nota_actual(secciones)
+    objetivo = float(data.get("objetivo") or 0.0)
+
+    meta = session.get("course_meta") or {}
+    model_key = _model_key_from_meta(nombre, meta)
+    term = (data.get("term") or meta.get("term") or "default")
+
+    evald = evaluate_plan_auto(
+        secciones=secciones,
+        labels=labels,
+        model_key=model_key,
+        nota_actual=float(nota_actual),
+        objetivo=float(objetivo),
+        targets=targets,
+        mc_samples=12000,
+        seed=123,
+    )
+    if not evald.get("ok") or not evald.get("plan"):
+        return jsonify({"ok": False, "error": evald.get("message") or "No se pudo evaluar el plan."}), 400
+
+    plan = evald["plan"]
+    to_save = {
+        "targets": plan.get("targets") or {},
+        "mc_prob": plan.get("mc_prob"),
+        "difficulty": plan.get("difficulty"),
+        "sum_contrib": plan.get("sum_contrib"),
+        "nota_final_si_cumple": plan.get("nota_final_si_cumple"),
+        "objetivo": objetivo,
+    }
+
+    ok = save_course_plan(user_id=int(pk), course_key=nombre, term=term, plan=to_save)
+    if not ok:
+        return jsonify({"ok": False, "error": "No se pudo guardar el plan en la base de datos."}), 500
+    return jsonify({"ok": True})

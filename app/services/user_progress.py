@@ -20,6 +20,7 @@ class UserCourseSummary:
     updated_at: Any
     total_slots: int
     filled_slots: int
+    has_saved_plan: bool
 
 
 def ensure_user(username: str) -> Optional[int]:
@@ -137,6 +138,61 @@ def set_course_objetivo(*, user_id: int, course_key: str, objetivo: float | None
         except Exception:
             pass
         return False
+    finally:
+        db.close()
+
+
+def save_course_plan(
+    *,
+    user_id: int,
+    course_key: str,
+    plan: Dict[str, Any],
+    term: str | None = None,
+) -> bool:
+    """
+    Guarda el plan personalizado (targets, prob, dificultad, etc.) en el curso del usuario.
+    Si `term` es None, intenta encontrar el curso por (user_id, course_key) sin term estricto.
+    """
+    db = SessionLocal()
+    try:
+        q = db.query(UserCourse).filter(UserCourse.user_id == user_id, UserCourse.course_key == course_key)
+        if term is not None:
+            q = q.filter(UserCourse.term == term)
+        course = q.order_by(UserCourse.updated_at.desc()).one_or_none()
+        if not course:
+            return False
+        course.saved_plan = plan
+        from sqlalchemy.sql import func
+        course.saved_plan_updated_at = func.now()
+        db.commit()
+        return True
+    except SQLAlchemyError:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        db.close()
+
+
+def load_course_saved_plan(
+    *,
+    user_id: int,
+    course_key: str,
+    term: str | None = None,
+) -> Optional[Dict[str, Any]]:
+    db = SessionLocal()
+    try:
+        q = db.query(UserCourse).filter(UserCourse.user_id == user_id, UserCourse.course_key == course_key)
+        if term is not None:
+            q = q.filter(UserCourse.term == term)
+        course = q.order_by(UserCourse.updated_at.desc()).one_or_none()
+        if not course:
+            return None
+        return dict(course.saved_plan) if course.saved_plan and isinstance(course.saved_plan, dict) else None
+    except SQLAlchemyError:
+        return None
     finally:
         db.close()
 
@@ -277,6 +333,7 @@ def load_course_state(*, user_id: int, course_key: str, term: str = "default") -
             "labels": labels,
             "secciones": secciones,
             "objetivo": float(course.objetivo) if course.objetivo is not None else None,
+            "term": str(course.term),
         }
     except SQLAlchemyError:
         return None
@@ -313,6 +370,7 @@ def list_user_courses(*, user_id: int, term: str = "default") -> List[UserCourse
                     updated_at=c.updated_at,
                     total_slots=int(total_slots),
                     filled_slots=int(filled_slots),
+                    has_saved_plan=bool(getattr(c, "saved_plan", None)),
                 )
             )
         return out

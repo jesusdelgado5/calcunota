@@ -30,6 +30,9 @@
             {% if c.objetivo is not none %}
             · Objetivo: <span class="font-medium">{{ '%.1f'|format(c.objetivo) }}</span>
             {% endif %}
+            {% if c.has_saved_plan %}
+            · <span class="inline-flex items-center rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-xs font-semibold">Plan guardado</span>
+            {% endif %}
           </div>
         </div>
         <a

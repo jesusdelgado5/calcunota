@@ -87,6 +87,9 @@ class UserCourse(Base):
     term: Mapped[str] = mapped_column(String(32), nullable=False, server_default="default")
 
     objetivo: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # Plan guardado por el usuario (metas por evaluación) + metadata
+    saved_plan: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
+    saved_plan_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, server_default=func.now(), onupdate=func.now())
 

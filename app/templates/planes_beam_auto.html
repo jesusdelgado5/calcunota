@@ -95,6 +95,9 @@ endblock %} {% block content %}
             <div id="plan-warn-{{ pid }}" class="mt-2 hidden rounded-lg border border-rose-200 bg-rose-50 text-rose-800 px-3 py-2 text-sm">
               Con estas metas no llegas al objetivo.
             </div>
+            <div id="plan-save-msg-{{ pid }}" class="mt-2 hidden rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 px-3 py-2 text-sm">
+              Plan guardado en tu perfil.
+            </div>
           </div>
           <div class="text-right">
             <div class="text-xs text-slate-500">Aporte si cumples metas</div>
@@ -102,6 +105,9 @@ endblock %} {% block content %}
               +<span id="plan-contrib-{{ pid }}">{{ p.sum_contrib }}</span>
             </div>
             <div class="text-xs text-slate-500">Objetivo: {{ objetivo }}</div>
+            <button type="button" id="btn-save-{{ pid }}" class="mt-2 rounded-lg bg-slate-900 hover:bg-slate-950 text-white px-3 py-2 text-sm">
+              Guardar plan
+            </button>
           </div>
         </div>
 
@@ -229,6 +235,15 @@ endblock %} {% block content %}
     return await res.json();
   }
 
+  async function savePlan(nombre, targets) {
+    const res = await fetch(`/materia/${encodeURIComponent(nombre)}/guardar-plan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targets }),
+    });
+    return await res.json();
+  }
+
   function attachPlanCard(cardEl, nombre, pid) {
     const initEl = document.getElementById(`plan-init-${pid}`);
     let targets = {};
@@ -243,6 +258,44 @@ endblock %} {% block content %}
     const probEl = document.getElementById(`plan-prob-${pid}`);
     const diffEl = document.getElementById(`plan-diff-${pid}`);
     const contribEl = document.getElementById(`plan-contrib-${pid}`);
+    const saveBtn = document.getElementById(`btn-save-${pid}`);
+    const saveMsg = document.getElementById(`plan-save-msg-${pid}`);
+
+    let timer = null;
+    async function refresh() {
+      const out = await evalPlan(nombre, targets);
+      if (!out || !out.ok || !out.plan) return;
+
+      const plan = out.plan;
+      probEl.textContent = `${(plan.mc_prob * 100).toFixed(1)}%`;
+      diffEl.textContent = plan.difficulty || difficultyLabel(plan.mc_prob || 0);
+      contribEl.textContent = String(plan.sum_contrib ?? "");
+      finalEl.textContent = String(plan.nota_final_si_cumple ?? "");
+
+      const bad = !plan.llega_objetivo;
+      warnEl.classList.toggle("hidden", !bad);
+      cardEl.classList.toggle("border-rose-300", bad);
+      cardEl.classList.toggle("bg-rose-50", bad);
+
+      // update per-row probabilities + targets (server-clamped)
+      const dmap = {};
+      (plan.details || []).forEach((d) => (dmap[d.eval_id] = d));
+      cardEl.querySelectorAll("tbody tr[data-eval-id]").forEach((tr) => {
+        const evalId = tr.getAttribute("data-eval-id");
+        const d = dmap[evalId];
+        if (!d) return;
+        const input = tr.querySelector(".plan-target");
+        const ptEl = tr.querySelector(".plan-ptail");
+        if (input) input.value = String(d.target);
+        if (ptEl) ptEl.textContent = `${(Number(d.p_tail || 0) * 100).toFixed(1)}%`;
+        targets[evalId] = d.target;
+      });
+    }
+
+    function scheduleRefresh() {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(refresh, 250);
+    }
 
     const rows = cardEl.querySelectorAll("tbody tr[data-eval-id]");
     rows.forEach((tr) => {
@@ -256,6 +309,7 @@ endblock %} {% block content %}
         const nv = Math.max(0, Math.min(100, Number(v) || 0));
         input.value = String(nv);
         targets[evalId] = nv;
+        scheduleRefresh();
       }
 
       minus.addEventListener("click", () => setVal(Number(input.value) - 1));
@@ -263,39 +317,24 @@ endblock %} {% block content %}
       input.addEventListener("input", () => setVal(input.value));
     });
 
-    let timer = null;
-    cardEl.addEventListener("input", () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(async () => {
-        const out = await evalPlan(nombre, targets);
-        if (!out || !out.ok || !out.plan) return;
+    // fallback: si el usuario edita manualmente (teclado), también refresca
+    cardEl.addEventListener("input", scheduleRefresh);
 
-        const plan = out.plan;
-        probEl.textContent = `${(plan.mc_prob * 100).toFixed(1)}%`;
-        diffEl.textContent = plan.difficulty || difficultyLabel(plan.mc_prob || 0);
-        contribEl.textContent = String(plan.sum_contrib ?? "");
-        finalEl.textContent = String(plan.nota_final_si_cumple ?? "");
+    if (saveBtn) {
+      saveBtn.addEventListener("click", async () => {
+        if (saveMsg) saveMsg.classList.add("hidden");
+        const out = await savePlan(nombre, targets);
+        if (out && out.ok) {
+          if (saveMsg) saveMsg.classList.remove("hidden");
+          return;
+        }
+        const err = (out && (out.error || out.message)) || "No se pudo guardar.";
+        alert(err);
+      });
+    }
 
-        const bad = !plan.llega_objetivo;
-        warnEl.classList.toggle("hidden", !bad);
-        cardEl.classList.toggle("border-rose-300", bad);
-        cardEl.classList.toggle("bg-rose-50", bad);
-
-        // update per-row probabilities + targets (server-clamped)
-        const dmap = {};
-        (plan.details || []).forEach((d) => (dmap[d.eval_id] = d));
-        cardEl.querySelectorAll("tbody tr[data-eval-id]").forEach((tr) => {
-          const evalId = tr.getAttribute("data-eval-id");
-          const d = dmap[evalId];
-          if (!d) return;
-          const input = tr.querySelector(".plan-target");
-          const ptEl = tr.querySelector(".plan-ptail");
-          if (input) input.value = String(d.target);
-          if (ptEl) ptEl.textContent = `${(Number(d.p_tail || 0) * 100).toFixed(1)}%`;
-          targets[evalId] = d.target;
-        });
-      }, 250);
-    });
+    // Primer refresh (para que todo quede realmente dinámico desde el inicio)
+    scheduleRefresh();
   }
 
   // attach all highlighted plan cards
