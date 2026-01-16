@@ -290,6 +290,7 @@ def _beam_search(
     max_nodes: int = 256,
     diversify: int = 8,
     overshoot_penalty: float = 0.25,
+    max_overshoot_points: Optional[float] = None,
     jitter: float = 1e-4,
     boost: bool = False,
     supergrid: bool = False
@@ -328,6 +329,10 @@ def _beam_search(
         for sc, c, t in beam:
             for s in cand:
                 sc2 = sc + e.weight * s
+                # Si buscamos "mínimo esfuerzo", imponemos un tope duro al overshoot en puntos:
+                # nota_final = nota_actual + sc2, req = objetivo - nota_actual => overshoot = sc2 - req
+                if max_overshoot_points is not None and (sc2 - req) > float(max_overshoot_points) + 1e-9:
+                    continue
                 if not feasible(sc2, level + 1):
                     continue
                 p_tail = _tail_value_for(e, s, pre_tail, ab_cal)
@@ -360,6 +365,8 @@ def _beam_search(
     plans: List[Dict[str, Any]] = []
     for sc, c, t in beam:
         if len(t) == len(E) and sc + 1e-9 >= req:
+            if max_overshoot_points is not None and (sc - req) > float(max_overshoot_points) + 1e-9:
+                continue
             plans.append({"targets": t, "sum_contrib": sc, "sum_cost": c, "prod_prob": math.exp(-c)})
     plans.sort(key=lambda d: (-d["prod_prob"], d["sum_cost"]))
     return plans
@@ -583,6 +590,20 @@ def optimize_auto_backend(
         tail[e.eval_id] = {s: _tail_prob_beta(s, e.alpha, e.beta, calibrator=cal) for s in e.grid}
 
     # 3) BEAM — Pase 1 (realista, sin booster ni supergrid)
+    #    También intentamos un pase "tight" para el plan recomendado:
+    #    objetivo <= nota_final <= objetivo + 0.5 (puntos).
+    tight_tol = 0.5
+    tight_plans = _beam_search(
+        evals, nota_actual, objetivo, tail,
+        beam_width=min(beam_width + 16, 160),
+        max_nodes=min(max_nodes_per_level + 128, 512),
+        diversify=min(diversify_per_eval + 2, 12),
+        overshoot_penalty=0.10,
+        max_overshoot_points=tight_tol,
+        boost=True,
+        supergrid=True,
+    )
+
     plans = _beam_search(
         evals, nota_actual, objetivo, tail,
         beam_width=beam_width,
@@ -619,6 +640,7 @@ def optimize_auto_backend(
     enriched: List[Dict[str, Any]] = []
     for p in plans:
         mc = _prob_plan_mc(p, samples)
+        nota_final_si_cumple = float(nota_actual) + float(p["sum_contrib"])
         details = []
         for e in evals:
             s = p["targets"][e.eval_id]
@@ -639,11 +661,57 @@ def optimize_auto_backend(
         enriched.append({
             "targets": p["targets"],
             "sum_contrib": round(p["sum_contrib"], 2),
+            "nota_final_si_cumple": round(nota_final_si_cumple, 2),
             "prod_prob": round(p["prod_prob"], 4),
             "mc_prob": round(mc, 4),
             "details": details,
         })
     enriched.sort(key=lambda d: d["mc_prob"], reverse=True)
+
+    # Enriquecer tight plans (si existieron) para recomendar mínimo esfuerzo.
+    tight_enriched: List[Dict[str, Any]] = []
+    for p in (tight_plans or []):
+        mc = _prob_plan_mc(p, samples)
+        nota_final_si_cumple = float(nota_actual) + float(p["sum_contrib"])
+        details = []
+        for e in evals:
+            s = p["targets"][e.eval_id]
+            cal = calibrators.get(e.eval_label)
+            p_tail = _tail_prob_beta(s, e.alpha, e.beta, calibrator=cal)
+            details.append({
+                "eval_id": e.eval_id,
+                "name": e.name,
+                "eval_label": e.eval_label,
+                "weight": round(e.weight, 4),
+                "mu": round(e.mu, 2),
+                "sigma": round(e.sigma, 2),
+                "target": int(s),
+                "p_tail": round(p_tail, 4),
+                "contrib": round(e.weight * s, 2),
+            })
+        tight_enriched.append({
+            "targets": p["targets"],
+            "sum_contrib": round(p["sum_contrib"], 2),
+            "nota_final_si_cumple": round(nota_final_si_cumple, 2),
+            "prod_prob": round(p["prod_prob"], 4),
+            "mc_prob": round(mc, 4),
+            "details": details,
+        })
+
+    def _overshoot(p: Dict[str, Any]) -> float:
+        try:
+            return max(0.0, float(p.get("nota_final_si_cumple", 0.0)) - float(objetivo))
+        except Exception:
+            return 1e9
+
+    # Plan recomendado: si hay tight_plans, priorizamos el más probable y más cercano al objetivo.
+    recommended_pool = tight_enriched if tight_enriched else enriched
+    recommended_plan = None
+    if recommended_pool:
+        recommended_plan = sorted(
+            recommended_pool,
+            key=lambda p: (-float(p.get("mc_prob", 0.0)), _overshoot(p)),
+        )[0]
 
     # 7) Planes destacados (3 más eficientes)
     def _plan_difficulty(p: Dict[str, Any]) -> Tuple[float, float]:
@@ -670,10 +738,14 @@ def optimize_auto_backend(
     if len(candidates) < 3:
         candidates = enriched
 
+    # Highlighted: para UI antigua dejamos 3, pero si existe recommended_plan lo ponemos primero.
     highlighted = sorted(
         candidates,
         key=lambda p: (-float(p.get("mc_prob", 0.0)),) + _plan_difficulty(p),
     )[:3]
+    if recommended_plan:
+        # evita duplicado
+        highlighted = [recommended_plan] + [p for p in highlighted if p is not recommended_plan][:2]
     for i, p in enumerate(highlighted):
         p["style"] = "Destacado"
         p["rank"] = i + 1
@@ -737,4 +809,7 @@ def optimize_auto_backend(
         "highlighted_plans": highlighted,
         "category_plans": category_plans,
         "plans": out_plans,  # compat/debug
+        "recommended_plan": recommended_plan,
+        "recommended_tight": bool(tight_enriched),
+        "recommended_tolerance": tight_tol,
     }

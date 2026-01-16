@@ -1145,10 +1145,9 @@
     window.__wizardObjetivo = Number(out.objetivo || 0);
     baselinePct.textContent = `${((r.baseline_prob || 0) * 100).toFixed(1)}%`;
     plansContainer.innerHTML = "";
-    const best = pickBestPlan((r.highlighted_plans || []), window.__wizardNotaActual, window.__wizardObjetivo);
-    if (best) {
-      plansContainer.appendChild(renderEditablePlanCard(best, 0));
-    }
+    const backendRec = r.recommended_plan || null;
+    const best = backendRec || pickBestPlan((r.highlighted_plans || []), window.__wizardNotaActual, window.__wizardObjetivo);
+    if (best) plansContainer.appendChild(renderEditablePlanCard(best, 0));
     projectOut.classList.remove("hidden");
     progressBar.style.width = "100%";
     progressText.textContent = "100%";
