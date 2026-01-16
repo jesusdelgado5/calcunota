@@ -920,6 +920,47 @@
     return "Legendario";
   }
 
+  function gradeLetterFromScore(s) {
+    const x = Number(s);
+    if (!Number.isFinite(x)) return "";
+    if (x >= 91) return "A";
+    if (x >= 81) return "B";
+    if (x >= 71) return "C";
+    if (x >= 61) return "D";
+    return "F";
+  }
+
+  function gradeBadgeClass(letter) {
+    if (letter === "A") return "bg-emerald-600";
+    if (letter === "B") return "bg-brand-600";
+    if (letter === "C") return "bg-amber-500";
+    if (letter === "D") return "bg-orange-500";
+    return "bg-rose-600";
+  }
+
+  function pickBestPlan(plans, notaActual, objetivo) {
+    const list = (plans || []).slice();
+    if (!list.length) return null;
+    const scored = list.map((p) => {
+      const mc = Number(p.mc_prob || 0);
+      const contrib = Number(p.sum_contrib || 0);
+      const total = Number(notaActual || 0) + contrib;
+      const overshoot = Math.max(0, total - Number(objetivo || 0));
+      const ts = (p.details || []).map((d) => Number(d.target || 0));
+      const maxT = ts.length ? Math.max(...ts) : 0;
+      const meanT = ts.length ? (ts.reduce((a, b) => a + b, 0) / ts.length) : 0;
+      return { p, mc, overshoot, maxT, meanT, total };
+    });
+    // "mínimo esfuerzo": máxima prob, luego lo más cerca posible del objetivo (sin picos)
+    scored.sort((a, b) => {
+      if (b.mc !== a.mc) return b.mc - a.mc;
+      if (a.overshoot !== b.overshoot) return a.overshoot - b.overshoot;
+      if (a.maxT !== b.maxT) return a.maxT - b.maxT;
+      return a.meanT - b.meanT;
+    });
+    return scored[0].p;
+  }
+
   async function evalPlan(courseKey, targets) {
     const res = await fetch(`/materia/${encodeURIComponent(courseKey)}/plan-eval`, {
       method: "POST",
@@ -943,10 +984,15 @@
     card.className = "rounded-2xl border border-white/10 bg-white/5 p-4";
 
     const targets = { ...(plan.targets || {}) };
-    const title = `Plan destacado #${idx + 1}`;
+    const title = `Plan recomendado`;
     const prob = ((plan.mc_prob || 0) * 100).toFixed(1);
     const diff = plan.difficulty || difficultyLabel(plan.mc_prob || 0);
-    const sumContrib = plan.sum_contrib ?? "";
+    const sumContrib = Number(plan.sum_contrib || 0);
+    const notaActual = Number(window.__wizardNotaActual || 0);
+    const objetivo = Number(window.__wizardObjetivo || 0);
+    const total = (notaActual + sumContrib);
+    const letter = gradeLetterFromScore(total);
+    const badgeCls = gradeBadgeClass(letter);
 
     card.innerHTML = `
       <div class="flex flex-wrap items-start justify-between gap-3">
@@ -960,7 +1006,10 @@
               ${diff}
             </span>
             <span class="inline-flex items-center rounded-full bg-slate-900 text-white px-3 py-1 text-xs font-semibold">
-              Aporte: <span class="ml-1" data-contrib>+${sumContrib}</span>
+              Total: <span class="ml-1" data-total>${total.toFixed(2)}</span>
+            </span>
+            <span class="inline-flex items-center rounded-full ${badgeCls} text-white px-3 py-1 text-xs font-extrabold tracking-wide" data-letter>
+              ${letter}
             </span>
           </div>
           <div class="mt-2 hidden rounded-lg border border-rose-200 bg-rose-50 text-rose-800 px-3 py-2 text-sm" data-warn>
@@ -1019,7 +1068,12 @@
       const p = out.plan;
       card.querySelector("[data-prob]").textContent = `${(p.mc_prob * 100).toFixed(1)}%`;
       card.querySelector("[data-diff]").textContent = p.difficulty || difficultyLabel(p.mc_prob || 0);
-      card.querySelector("[data-contrib]").textContent = `+${p.sum_contrib ?? ""}`;
+      const totalNow = Number(p.nota_final_si_cumple || 0);
+      card.querySelector("[data-total]").textContent = `${totalNow.toFixed(2)}`;
+      const letterNow = gradeLetterFromScore(totalNow);
+      const badgeNow = card.querySelector("[data-letter]");
+      badgeNow.textContent = letterNow;
+      badgeNow.className = `inline-flex items-center rounded-full ${gradeBadgeClass(letterNow)} text-white px-3 py-1 text-xs font-extrabold tracking-wide`;
 
       const warn = card.querySelector("[data-warn]");
       const bad = !p.llega_objetivo;
@@ -1086,10 +1140,15 @@
       return;
     }
     const r = out.result || {};
+    // expone estos valores para el header del plan (Total = nota_actual + contrib)
+    window.__wizardNotaActual = Number(out.nota_actual || 0);
+    window.__wizardObjetivo = Number(out.objetivo || 0);
     baselinePct.textContent = `${((r.baseline_prob || 0) * 100).toFixed(1)}%`;
     plansContainer.innerHTML = "";
-    const plans = (r.highlighted_plans || []).slice(0, 3);
-    plans.forEach((p, i) => plansContainer.appendChild(renderEditablePlanCard(p, i)));
+    const best = pickBestPlan((r.highlighted_plans || []), window.__wizardNotaActual, window.__wizardObjetivo);
+    if (best) {
+      plansContainer.appendChild(renderEditablePlanCard(best, 0));
+    }
     projectOut.classList.remove("hidden");
     progressBar.style.width = "100%";
     progressText.textContent = "100%";
