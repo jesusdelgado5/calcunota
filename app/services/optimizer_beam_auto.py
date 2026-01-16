@@ -590,20 +590,6 @@ def optimize_auto_backend(
         tail[e.eval_id] = {s: _tail_prob_beta(s, e.alpha, e.beta, calibrator=cal) for s in e.grid}
 
     # 3) BEAM — Pase 1 (realista, sin booster ni supergrid)
-    #    También intentamos un pase "tight" para el plan recomendado:
-    #    objetivo <= nota_final <= objetivo + 0.5 (puntos).
-    tight_tol = 0.5
-    tight_plans = _beam_search(
-        evals, nota_actual, objetivo, tail,
-        beam_width=min(beam_width + 16, 160),
-        max_nodes=min(max_nodes_per_level + 128, 512),
-        diversify=min(diversify_per_eval + 2, 12),
-        overshoot_penalty=0.10,
-        max_overshoot_points=tight_tol,
-        boost=True,
-        supergrid=True,
-    )
-
     plans = _beam_search(
         evals, nota_actual, objetivo, tail,
         beam_width=beam_width,
@@ -635,6 +621,93 @@ def optimize_auto_backend(
     # 5) Monte Carlo correlacionado
     samples = _samples_beta_two_factor(evals, N=mc_samples, seed=seed)
     baseline = _prob_obj_mc(nota_actual, objetivo, evals, samples)
+
+    # 5.5) Utilidades: enriquecer + "tighten" para mínimo esfuerzo
+    def _enrich_from_targets(tg: Dict[str, int]) -> Dict[str, Any]:
+        details = []
+        sum_contrib = 0.0
+        for e in evals:
+            s = int(max(0, min(100, int(tg.get(e.eval_id, e.s_min)))))
+            sum_contrib += float(e.weight) * float(s)
+            cal = calibrators.get(e.eval_label)
+            p_tail = _tail_prob_beta(s, e.alpha, e.beta, calibrator=cal)
+            details.append({
+                "eval_id": e.eval_id,
+                "name": e.name,
+                "eval_label": e.eval_label,
+                "weight": round(e.weight, 4),
+                "mu": round(e.mu, 2),
+                "sigma": round(e.sigma, 2),
+                "target": int(s),
+                "p_tail": round(p_tail, 4),
+                "contrib": round(e.weight * s, 2),
+            })
+        mc = _prob_plan_mc({"targets": tg}, samples) if tg else 1.0
+        nota_final = float(nota_actual) + float(sum_contrib)
+        return {
+            "targets": {k: int(v) for k, v in tg.items()},
+            "sum_contrib": round(float(sum_contrib), 2),
+            "nota_final_si_cumple": round(float(nota_final), 2),
+            "prod_prob": None,
+            "mc_prob": round(float(mc), 4),
+            "details": details,
+        }
+
+    def _tighten_targets(tg: Dict[str, int]) -> Tuple[Dict[str, int], float]:
+        """
+        Reduce metas todo lo posible manteniendo nota_final >= objetivo.
+        Resultado queda lo más cerca posible del objetivo (mínimo esfuerzo).
+        """
+        t = {k: int(v) for k, v in (tg or {}).items()}
+        # calcula total
+        total = float(nota_actual)
+        for e in evals:
+            total += float(e.weight) * float(int(t.get(e.eval_id, e.s_min)))
+
+        if total + 1e-9 < float(objetivo):
+            return t, total
+
+        # decrementos greedy: siempre elige el decremento que deja la menor sobrepasada >=0
+        improved = True
+        while improved:
+            improved = False
+            best_eid = None
+            best_new_over = None
+            best_w = None
+            for e in evals:
+                eid = e.eval_id
+                cur = int(t.get(eid, e.s_min))
+                if cur <= 0:
+                    continue
+                new_total = total - float(e.weight)
+                if new_total + 1e-9 < float(objetivo):
+                    continue
+                new_over = float(new_total) - float(objetivo)
+                if best_new_over is None or new_over < best_new_over - 1e-12:
+                    best_new_over = new_over
+                    best_eid = eid
+                    best_w = float(e.weight)
+            if best_eid is not None and best_w is not None:
+                t[best_eid] = int(t.get(best_eid, 0)) - 1
+                total -= best_w
+                improved = True
+
+        return t, total
+
+    # Tolerancia solicitada: objetivo <= nota_final <= objetivo + 0.8 (puntos)
+    tight_tol = 0.8
+
+    # Un pase adicional de BEAM con tope duro de overshoot para encontrar una base buena.
+    tight_plans = _beam_search(
+        evals, nota_actual, objetivo, tail,
+        beam_width=min(beam_width + 96, 256),
+        max_nodes=min(max_nodes_per_level + 512, 1400),
+        diversify=min(diversify_per_eval + 8, 20),
+        overshoot_penalty=0.05,
+        max_overshoot_points=tight_tol,
+        boost=True,
+        supergrid=True,
+    )
 
     # 6) Enriquecer resultados y ordenar por MC
     enriched: List[Dict[str, Any]] = []
@@ -668,50 +741,57 @@ def optimize_auto_backend(
         })
     enriched.sort(key=lambda d: d["mc_prob"], reverse=True)
 
-    # Enriquecer tight plans (si existieron) para recomendar mínimo esfuerzo.
-    tight_enriched: List[Dict[str, Any]] = []
-    for p in (tight_plans or []):
-        mc = _prob_plan_mc(p, samples)
-        nota_final_si_cumple = float(nota_actual) + float(p["sum_contrib"])
-        details = []
-        for e in evals:
-            s = p["targets"][e.eval_id]
-            cal = calibrators.get(e.eval_label)
-            p_tail = _tail_prob_beta(s, e.alpha, e.beta, calibrator=cal)
-            details.append({
-                "eval_id": e.eval_id,
-                "name": e.name,
-                "eval_label": e.eval_label,
-                "weight": round(e.weight, 4),
-                "mu": round(e.mu, 2),
-                "sigma": round(e.sigma, 2),
-                "target": int(s),
-                "p_tail": round(p_tail, 4),
-                "contrib": round(e.weight * s, 2),
-            })
-        tight_enriched.append({
-            "targets": p["targets"],
-            "sum_contrib": round(p["sum_contrib"], 2),
-            "nota_final_si_cumple": round(nota_final_si_cumple, 2),
-            "prod_prob": round(p["prod_prob"], 4),
-            "mc_prob": round(mc, 4),
-            "details": details,
-        })
+    def _overshoot_points(total: float) -> float:
+        return max(0.0, float(total) - float(objetivo))
 
-    def _overshoot(p: Dict[str, Any]) -> float:
-        try:
-            return max(0.0, float(p.get("nota_final_si_cumple", 0.0)) - float(objetivo))
-        except Exception:
-            return 1e9
+    # Construye candidatos para recomendado:
+    # 1) toma planes tight (si existen), si no, toma los mejores planes generales
+    base_candidates = list(tight_plans or []) or list(plans or [])
+    base_candidates = base_candidates[:200]  # limita costo
 
-    # Plan recomendado: si hay tight_plans, priorizamos el más probable y más cercano al objetivo.
-    recommended_pool = tight_enriched if tight_enriched else enriched
-    recommended_plan = None
-    if recommended_pool:
-        recommended_plan = sorted(
-            recommended_pool,
-            key=lambda p: (-float(p.get("mc_prob", 0.0)), _overshoot(p)),
+    tightened_candidates: List[Dict[str, Any]] = []
+    seen = set()
+    for p in base_candidates:
+        tg0 = dict(p.get("targets") or {})
+        tg1, tot1 = _tighten_targets(tg0)
+        # key para deduplicar
+        key = tuple(sorted((k, int(v)) for k, v in tg1.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+        enriched1 = _enrich_from_targets(tg1)
+        enriched1["nota_final_si_cumple"] = round(float(tot1), 2)
+        enriched1["recommended_tightened"] = True
+        tightened_candidates.append(enriched1)
+
+    # filtra por la ventana objetivo..objetivo+tight_tol
+    within_window = [
+        p for p in tightened_candidates
+        if float(p.get("nota_final_si_cumple", 0.0)) + 1e-9 >= float(objetivo)
+        and _overshoot_points(float(p.get("nota_final_si_cumple", 0.0))) <= float(tight_tol) + 1e-9
+    ]
+
+    # Selección:
+    # - primero el más cercano al objetivo (mínimo esfuerzo)
+    # - luego mayor prob (mc_prob)
+    # - luego menor pico de targets
+    def _max_target(p: Dict[str, Any]) -> int:
+        ts = [int(d.get("target", 0)) for d in (p.get("details") or [])]
+        return max(ts) if ts else 0
+
+    def _pick_best(pool: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not pool:
+            return None
+        return sorted(
+            pool,
+            key=lambda p: (
+                _overshoot_points(float(p.get("nota_final_si_cumple", 0.0))),
+                -float(p.get("mc_prob", 0.0)),
+                _max_target(p),
+            ),
         )[0]
+
+    recommended_plan = _pick_best(within_window) or _pick_best(tightened_candidates) or (enriched[0] if enriched else None)
 
     # 7) Planes destacados (3 más eficientes)
     def _plan_difficulty(p: Dict[str, Any]) -> Tuple[float, float]:
@@ -810,6 +890,6 @@ def optimize_auto_backend(
         "category_plans": category_plans,
         "plans": out_plans,  # compat/debug
         "recommended_plan": recommended_plan,
-        "recommended_tight": bool(tight_enriched),
+        "recommended_tight": bool(within_window),
         "recommended_tolerance": tight_tol,
     }
