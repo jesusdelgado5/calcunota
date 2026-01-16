@@ -16,9 +16,9 @@
             Comencemos.
           </h1>
           <p class="mt-2 text-sm sm:text-base text-slate-200">
-            Elige el periodo y la materia. Si no está en la lista, selecciónala
-            como <span class="font-semibold text-white">Otra</span> y escribe el
-            nombre.
+            Elige el periodo, la materia y (opcionalmente) el profesor.
+            Puedes <span class="font-semibold text-white">escribir</span> para
+            filtrar la lista.
           </p>
         </div>
 
@@ -58,73 +58,51 @@
 
             <label class="text-sm font-semibold text-slate-100">
               Materia
-              <!-- Input buscable (datalist) -->
-              <input
-                id="subject_search"
-                name="subject_search"
-                type="text"
-                placeholder="Escribe para buscar (ej. Cálculo I)"
-                class="mt-1 w-full rounded-xl border border-white/10 px-3 py-2 bg-white/5 text-white placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-brand-500/30"
-                list="subjects_list"
-                autocomplete="off"
-              />
-              <datalist id="subjects_list">
-                {% for s in subjects or [] %}
-                  <option value="{{ s.name }}"></option>
-                {% endfor %}
-              </datalist>
+              <div class="relative mt-1">
+                <!-- input visible (filtra) -->
+                <input
+                  id="subject_input"
+                  type="text"
+                  placeholder="Buscar materia…"
+                  class="w-full rounded-xl border border-white/10 px-3 py-2 bg-white/5 text-white placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-brand-500/30"
+                  autocomplete="off"
+                />
+                <!-- valor real enviado al backend -->
+                <input id="subject_id" name="subject_id" type="hidden" value="" />
 
-              <!-- Campo real que consume el backend -->
-              <select id="subject_id" name="subject_id" class="hidden">
-                <option value="">— Selecciona —</option>
-                {% for s in subjects or [] %}
-                <option value="{{ s.id }}">{{ s.name }}</option>
-                {% endfor %}
-                <option value="custom">custom</option>
-              </select>
+                <!-- dropdown -->
+                <div
+                  id="subject_dropdown"
+                  class="hidden absolute z-20 mt-2 w-full rounded-xl border border-white/10 bg-white text-slate-900 shadow-xl overflow-hidden"
+                >
+                  <div class="max-h-60 overflow-auto py-1" id="subject_options"></div>
+                </div>
+              </div>
               <div class="mt-1 text-xs text-slate-300">
-                Consejo: si tu materia está en el catálogo, usa esa opción para
-                mejores probabilidades iniciales.
+                Solo puedes seleccionar materias existentes. Si no aparece,
+                verifica la ortografía.
               </div>
             </label>
 
-            <div id="custom_subject_wrap" class="hidden">
-              <label class="text-sm font-semibold text-slate-100">
-                Nombre de la materia
-                <input
-                  id="materia_custom"
-                  name="materia_custom"
-                  type="text"
-                  placeholder="Ej. Física I"
-                  class="mt-1 w-full rounded-xl border border-white/10 px-3 py-2 bg-white/5 text-white placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-brand-500/30"
-                />
-              </label>
-            </div>
-
             <label class="text-sm font-semibold text-slate-100">
               Profesor <span class="text-slate-300 font-medium">(opcional)</span>
-              <input
-                id="professor_search"
-                name="professor_search"
-                type="text"
-                placeholder="Escribe para buscar (opcional)"
-                class="mt-1 w-full rounded-xl border border-white/10 px-3 py-2 bg-white/5 text-white placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-brand-500/30"
-                list="professors_list"
-                autocomplete="off"
-              />
-              <datalist id="professors_list">
-                {% for p in professors or [] %}
-                  <option value="{{ p.name }}"></option>
-                {% endfor %}
-              </datalist>
+              <div class="relative mt-1">
+                <input
+                  id="professor_input"
+                  type="text"
+                  placeholder="Buscar profesor…"
+                  class="w-full rounded-xl border border-white/10 px-3 py-2 bg-white/5 text-white placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-brand-500/30"
+                  autocomplete="off"
+                />
+                <input id="professor_id" name="professor_id" type="hidden" value="" />
 
-              <!-- Campo real que consume el backend -->
-              <select id="professor_id" name="professor_id" class="hidden">
-                <option value="">— Sin profesor —</option>
-                {% for p in professors or [] %}
-                <option value="{{ p.id }}">{{ p.name }}</option>
-                {% endfor %}
-              </select>
+                <div
+                  id="professor_dropdown"
+                  class="hidden absolute z-20 mt-2 w-full rounded-xl border border-white/10 bg-white text-slate-900 shadow-xl overflow-hidden"
+                >
+                  <div class="max-h-60 overflow-auto py-1" id="professor_options"></div>
+                </div>
+              </div>
               <div class="mt-1 text-xs text-slate-300">
                 Elegir profesor ayuda a personalizar recomendaciones si la base
                 crece.
@@ -175,12 +153,16 @@
 
 {% block body_extra %}
 <script>
-  const subjectSel = document.getElementById("subject_id"); // hidden
-  const subjectSearch = document.getElementById("subject_search"); // visible
-  const profSel = document.getElementById("professor_id"); // hidden
-  const profSearch = document.getElementById("professor_search"); // visible
-  const customWrap = document.getElementById("custom_subject_wrap");
-  const customInput = document.getElementById("materia_custom");
+  const subjectId = document.getElementById("subject_id");
+  const subjectInput = document.getElementById("subject_input");
+  const subjectDropdown = document.getElementById("subject_dropdown");
+  const subjectOptions = document.getElementById("subject_options");
+
+  const profId = document.getElementById("professor_id");
+  const profInput = document.getElementById("professor_input");
+  const profDropdown = document.getElementById("professor_dropdown");
+  const profOptions = document.getElementById("professor_options");
+
   const semSel = document.getElementById("periodo_semestre");
   const yearSel = document.getElementById("periodo_anio");
   const progressBar = document.getElementById("progressBar");
@@ -189,112 +171,94 @@
   const profMap = {{ (prof_map or {})|tojson }};
   const subjectsList = {{ (subjects_json or [])|tojson }};
   const professorsList = {{ (professors_json or [])|tojson }};
-  const subjectsByName = Object.fromEntries((subjectsList || []).map((s) => [s.name, s.id]));
-  const professorsByName = Object.fromEntries((professorsList || []).map((p) => [p.name, p.id]));
 
   function normKey(s) {
     return String(s || "").trim().toLowerCase();
   }
 
-  function resolveSubject() {
-    const txt = (subjectSearch?.value || "").trim();
-    if (!txt) {
-      subjectSel.value = "";
-      customWrap.classList.add("hidden");
-      if (customInput) customInput.value = "";
-      return;
-    }
-    // match exact (case-insensitive) by name
-    const target = normKey(txt);
-    let foundId = null;
-    for (const [name, id] of Object.entries(subjectsByName || {})) {
-      if (normKey(name) === target) {
-        foundId = id;
-        break;
-      }
-    }
-    if (foundId) {
-      subjectSel.value = String(foundId);
-      customWrap.classList.add("hidden");
-      if (customInput) customInput.value = "";
-    } else {
-      // treat as custom
-      subjectSel.value = "custom";
-      customWrap.classList.remove("hidden");
-      if (customInput) customInput.value = txt;
-    }
+  function show(el) { el?.classList.remove("hidden"); }
+  function hide(el) { el?.classList.add("hidden"); }
+
+  function optionRow({ label, onClick, disabled = false }) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className =
+      "w-full text-left px-3 py-2 text-sm " +
+      (disabled ? "text-slate-500 cursor-not-allowed" : "hover:bg-slate-50 text-slate-900");
+    btn.textContent = label;
+    if (disabled) btn.disabled = true;
+    if (!disabled) btn.addEventListener("click", onClick);
+    return btn;
   }
 
-  function resolveProfessor() {
-    const txt = (profSearch?.value || "").trim();
-    if (!txt) {
-      profSel.value = "";
+  function renderSubjects(filterText) {
+    const q = normKey(filterText);
+    const items = (subjectsList || []).filter((s) => normKey(s.name).includes(q));
+    subjectOptions.innerHTML = "";
+    if (!items.length) {
+      subjectOptions.appendChild(optionRow({ label: "Materia no encontrada", disabled: true }));
       return;
     }
-    const target = normKey(txt);
-    let foundId = null;
-    for (const [name, id] of Object.entries(professorsByName || {})) {
-      if (normKey(name) === target) {
-        foundId = id;
-        break;
-      }
-    }
-    profSel.value = foundId ? String(foundId) : "";
+    items.slice(0, 80).forEach((s) => {
+      subjectOptions.appendChild(
+        optionRow({
+          label: s.name,
+          onClick: () => {
+            subjectId.value = String(s.id);
+            subjectInput.value = s.name;
+            hide(subjectDropdown);
+            // al cambiar materia, resetea profesor y re-renderiza
+            profId.value = "";
+            profInput.value = "";
+            renderProfessors(profInput.value);
+            updateUi();
+          },
+        })
+      );
+    });
   }
 
-  function filterProfessorDatalist() {
-    const list = document.getElementById("professors_list");
-    if (!list) return;
-    // allowed professor ids by chosen subject (if any)
-    const sid = subjectSel.value;
-    const allowed = profMap[sid] || profMap[parseInt(sid)] || null;
+  function allowedProfessorIds() {
+    const sid = subjectId.value;
+    if (!sid) return null;
+    return profMap[sid] || profMap[parseInt(sid)] || null;
+  }
 
-    // rebuild datalist options to keep it simple
-    list.innerHTML = "";
-    const all = (professorsByName || {});
-    for (const [name, id] of Object.entries(all)) {
-      if (!allowed || allowed.includes(parseInt(String(id)))) {
-        const opt = document.createElement("option");
-        opt.value = name;
-        list.appendChild(opt);
-      }
+  function renderProfessors(filterText) {
+    const q = normKey(filterText);
+    const allowed = allowedProfessorIds();
+    const items = (professorsList || []).filter((p) => {
+      if (allowed && !allowed.includes(parseInt(String(p.id)))) return false;
+      return normKey(p.name).includes(q);
+    });
+    profOptions.innerHTML = "";
+    if (!items.length) {
+      profOptions.appendChild(optionRow({ label: "Profesor no encontrado", disabled: true }));
+      return;
     }
-    // if current typed professor becomes invalid, clear it
-    resolveProfessor();
-    if (allowed && profSel.value) {
-      const pid = parseInt(profSel.value);
-      if (!allowed.includes(pid)) {
-        profSel.value = "";
-        if (profSearch) profSearch.value = "";
-      }
-    }
+    items.slice(0, 80).forEach((p) => {
+      profOptions.appendChild(
+        optionRow({
+          label: p.name,
+          onClick: () => {
+            profId.value = String(p.id);
+            profInput.value = p.name;
+            hide(profDropdown);
+            updateUi();
+          },
+        })
+      );
+    });
   }
 
   function updateUi() {
-    resolveSubject();
-    resolveProfessor();
-
-    const sid = subjectSel.value;
-    const isCustom = sid === "custom";
-    customWrap.classList.toggle("hidden", !isCustom);
-
-    // filtrar profesores si hay mapa para esa materia
-    const allowed = profMap[sid] || profMap[parseInt(sid)] || null;
-    // (mantener filtrado en el select hidden por si se usa como fallback)
-    const options = Array.from(profSel.options || []);
-    options.forEach((opt) => {
-      if (!opt.value) return;
-      opt.hidden = !!(allowed && !allowed.includes(parseInt(opt.value)));
-    });
-    filterProfessorDatalist();
-
     // progreso: 4 checks
     const checks = [
       Boolean(semSel && semSel.value),
       Boolean(yearSel && yearSel.value),
-      Boolean(sid && sid !== "custom") || (isCustom && Boolean((customInput?.value || "").trim())),
+      Boolean((subjectId?.value || "").trim()),
       // profesor es opcional: suma si está seleccionado (solo para feedback)
-      Boolean((profSel?.value || "").trim()),
+      Boolean((profId?.value || "").trim()),
     ];
     const done = checks.filter(Boolean).length;
     const pct = Math.round((done / checks.length) * 100);
@@ -305,16 +269,44 @@
     const canContinue =
       Boolean(semSel && semSel.value) &&
       Boolean(yearSel && yearSel.value) &&
-      (Boolean(sid && sid !== "custom") || Boolean(isCustom && (customInput?.value || "").trim()));
+      Boolean((subjectId?.value || "").trim());
     continueBtn.disabled = !canContinue;
   }
-  subjectSearch?.addEventListener("input", updateUi);
-  subjectSearch?.addEventListener("change", updateUi);
-  customInput?.addEventListener("input", updateUi);
+
+  // materia: abrir/filtrar
+  subjectInput?.addEventListener("focus", () => { show(subjectDropdown); renderSubjects(subjectInput.value); });
+  subjectInput?.addEventListener("click", () => { show(subjectDropdown); renderSubjects(subjectInput.value); });
+  subjectInput?.addEventListener("input", () => {
+    // al escribir, invalida selección previa hasta elegir una opción
+    subjectId.value = "";
+    show(subjectDropdown);
+    renderSubjects(subjectInput.value);
+    updateUi();
+  });
+
+  // profesor: abrir/filtrar (opcional)
+  profInput?.addEventListener("focus", () => { show(profDropdown); renderProfessors(profInput.value); });
+  profInput?.addEventListener("click", () => { show(profDropdown); renderProfessors(profInput.value); });
+  profInput?.addEventListener("input", () => {
+    profId.value = "";
+    show(profDropdown);
+    renderProfessors(profInput.value);
+    updateUi();
+  });
+
   semSel?.addEventListener("change", updateUi);
   yearSel?.addEventListener("change", updateUi);
-  profSearch?.addEventListener("input", updateUi);
-  profSearch?.addEventListener("change", updateUi);
+
+  // cerrar dropdowns al click afuera
+  document.addEventListener("click", (e) => {
+    const t = e.target;
+    if (subjectDropdown && subjectInput && !subjectDropdown.contains(t) && t !== subjectInput) hide(subjectDropdown);
+    if (profDropdown && profInput && !profDropdown.contains(t) && t !== profInput) hide(profDropdown);
+  });
+
+  // init
+  renderSubjects("");
+  renderProfessors("");
   updateUi();
 </script>
 {% endblock %}

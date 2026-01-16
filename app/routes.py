@@ -225,34 +225,52 @@ def calcular():
         term_label = f"{_period_label(sem)} {anio}"
 
         subject_id = (request.form.get("subject_id") or "").strip()
-        custom_name = (request.form.get("materia_custom") or "").strip()
         prof_id = (request.form.get("professor_id") or "").strip()
 
         chosen_name = ""
         chosen_subject_id = None
         chosen_professor_id = None
 
-        if subject_id and subject_id != "custom":
-            db = SessionLocal()
-            try:
-                subj = db.query(Subject).filter(Subject.id == int(subject_id)).one_or_none()
-                if subj:
-                    chosen_name = subj.name
-                    chosen_subject_id = int(subj.id)
-            finally:
-                db.close()
-        else:
-            chosen_name = custom_name
-
-        if not chosen_name:
-            flash("Elige una materia o escribe una.", "error")
+        if not subject_id:
+            flash("Selecciona una materia de la lista.", "error")
             return redirect(url_for("web.calcular"))
 
-        if prof_id:
-            try:
-                chosen_professor_id = int(prof_id)
-            except Exception:
-                chosen_professor_id = None
+        db = SessionLocal()
+        try:
+            subj = db.query(Subject).filter(Subject.id == int(subject_id)).one_or_none()
+            if subj:
+                chosen_name = subj.name
+                chosen_subject_id = int(subj.id)
+            else:
+                flash("Materia inválida. Selecciona una de la lista.", "error")
+                return redirect(url_for("web.calcular"))
+
+            if prof_id:
+                try:
+                    pid = int(prof_id)
+                except Exception:
+                    pid = None
+                if pid:
+                    # Valida que el profesor exista y, si hay relación por materia, respétala.
+                    prof = db.query(Professor).filter(Professor.id == pid).one_or_none()
+                    if prof:
+                        # Si hay restricción en subject_professor, validarla (si no existe tabla, no rompe)
+                        link_ok = (
+                            db.query(SubjectProfessor)
+                            .filter(SubjectProfessor.subject_id == int(chosen_subject_id), SubjectProfessor.professor_id == int(pid))
+                            .count()
+                        )
+                        if link_ok > 0:
+                            chosen_professor_id = int(pid)
+                        else:
+                            # Permite "sin profesor" si no aplica para esa materia
+                            chosen_professor_id = None
+        finally:
+            db.close()
+
+        if not chosen_name:
+            flash("Selecciona una materia de la lista.", "error")
+            return redirect(url_for("web.calcular"))
 
         # course_key incorpora term para evitar colisiones en URLs
         base_key = slugify(chosen_name)
