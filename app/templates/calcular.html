@@ -174,9 +174,13 @@
           </div>
 
           <div class="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div class="flex items-center justify-between text-sm text-slate-200">
+              <span>Notas ingresadas</span>
+              <span id="notesCount" class="font-semibold">0/0</span>
+            </div>
             <div id="notesRows" class="grid gap-3"></div>
             <div class="mt-3">
-              <button id="btnAddNote" type="button" class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-4 py-2 text-slate-100">
+              <button id="btnAddNote" type="button" class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-4 py-2 text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
                 + Añadir nota
               </button>
             </div>
@@ -517,6 +521,7 @@
   // Notes UI
   const notesTitle = document.getElementById("notesTitle");
   const notesRows = document.getElementById("notesRows");
+  const notesCount = document.getElementById("notesCount");
   const btnAddNote = document.getElementById("btnAddNote");
   const btnBackNotes = document.getElementById("btnBackNotes");
   const btnNextNotes = document.getElementById("btnNextNotes");
@@ -528,6 +533,7 @@
   let noteSectionIdx = 0;
   let wizardLabels = [];
   let wizardSecciones = [];
+  let maxNotesForSection = 0;
 
   async function apiPost(url, body) {
     const res = await fetch(url, {
@@ -694,29 +700,57 @@
     `;
     const input = d.querySelector(".note-val");
     if (val !== undefined && val !== null) input.value = String(val);
-    d.querySelector(".btn-del-note").addEventListener("click", () => d.remove());
+    d.querySelector(".btn-del-note").addEventListener("click", () => {
+      d.remove();
+      updateNotesCountUi();
+    });
     return d;
+  }
+
+  function updateNotesCountUi() {
+    const current = notesRows.querySelectorAll(".note-val").length;
+    const maxN = Math.max(0, Number(maxNotesForSection || 0));
+    if (notesCount) notesCount.textContent = `${current}/${maxN}`;
+    // si maxN == 0 => no se permiten notas
+    const canAdd = maxN > 0 && current < maxN;
+    btnAddNote.disabled = !canAdd;
+    // también deshabilita "Siguiente" si se excede (no debería pasar)
+    if (current > maxN && maxN > 0) {
+      btnNextNotes.disabled = true;
+    } else {
+      btnNextNotes.disabled = false;
+    }
   }
 
   function renderNotesSection(i) {
     const label = wizardLabels[i] || `Sección ${i + 1}`;
     notesTitle.textContent = label;
     notesRows.innerHTML = "";
-    const existing = ((wizardSecciones[i] || {}).notas_obtenidas || []).map((n) => {
+    const sec = (wizardSecciones[i] || {});
+    maxNotesForSection = parseInt(sec.num_notas || "0") || 0;
+    const existing = ((sec.notas_obtenidas || [])).map((n) => {
       if (typeof n === "number") return n;
       if (n && typeof n === "object") return n.score;
       return null;
     }).filter((x) => x !== null);
-    if (!existing.length) {
-      notesRows.appendChild(noteRow());
+    const maxN = Math.max(0, Number(maxNotesForSection || 0));
+    const trimmed = (existing || []).slice(0, maxN || 0);
+    if (!trimmed.length) {
+      // si maxN>0, ponemos 1 input vacío para comodidad
+      if (maxN > 0) notesRows.appendChild(noteRow());
     } else {
-      existing.forEach((v) => notesRows.appendChild(noteRow(v)));
+      trimmed.forEach((v) => notesRows.appendChild(noteRow(v)));
     }
     btnNextNotes.textContent = (i === wizardLabels.length - 1) ? "Terminar" : "Siguiente";
+    updateNotesCountUi();
   }
 
   btnAddNote?.addEventListener("click", () => {
+    const current = notesRows.querySelectorAll(".note-val").length;
+    const maxN = Math.max(0, Number(maxNotesForSection || 0));
+    if (maxN <= 0 || current >= maxN) return;
     notesRows.appendChild(noteRow());
+    updateNotesCountUi();
   });
 
   async function saveCurrentNotes() {
@@ -724,10 +758,12 @@
       .map((el) => (el.value || "").trim())
       .filter((x) => x !== "")
       .map((x) => Number(x));
+    const maxN = Math.max(0, Number(maxNotesForSection || 0));
+    const clipped = (maxN > 0) ? vals.slice(0, maxN) : [];
     const out = await apiPost("/api/wizard/notes/save", {
       course_key: wizardCourseKey,
       section_index: noteSectionIdx,
-      notes: vals,
+      notes: clipped,
     });
     if (!out || !out.ok) {
       alert((out && (out.error || out.message)) || "No se pudieron guardar las notas.");
