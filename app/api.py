@@ -12,6 +12,9 @@ from app.services.user_progress import upsert_course_config, set_course_objetivo
 from app.services.grades import resumen_desde_secciones, calcular_nota_actual
 from app.services.goal_grades import grade_to_objective
 from app.services.optimizer_beam_auto import optimize_auto_backend
+from app.services.observations import log_observed_score
+from app.services.predictions import resolve_predictions_with_new_score
+from app.services.grades import normalize_nota
 
 api_bp = Blueprint("api", __name__)
 
@@ -163,11 +166,17 @@ def wizard_config():
             pct, n = 0.0, 0
         secs_clean.append({"porcentaje": max(0.0, pct) / 100.0, "num_notas": max(0, n), "notas_obtenidas": []})
 
-    session["materia_actual"] = {"nombre": course_key, "labels": labels_clean, "secciones": secs_clean, "objetivo": None}
+    meta = session.get("course_meta") or {}
+    session["materia_actual"] = {
+        "nombre": course_key,
+        "labels": labels_clean,
+        "secciones": secs_clean,
+        "objetivo": None,
+        "term": meta.get("term") or "default",
+    }
     session.modified = True
 
     user_pk = session.get("user_pk")
-    meta = session.get("course_meta") or {}
     if user_pk:
         upsert_course_config(
             user_id=int(user_pk),
@@ -179,6 +188,101 @@ def wizard_config():
             secciones=secs_clean,
             term=meta.get("term") or "default",
         )
+
+    return jsonify({"ok": True})
+
+
+@api_bp.get("/wizard/state")
+def wizard_state():
+    """Devuelve el estado actual del wizard desde sesión."""
+    data = session.get("materia_actual") or {}
+    meta = session.get("course_meta") or {}
+    return jsonify({"ok": True, "materia_actual": data, "course_meta": meta})
+
+
+@api_bp.post("/wizard/notes/save")
+def wizard_notes_save():
+    """
+    Guarda notas (0..100) para una sección por índice.
+    JSON: { course_key, section_index, notes:[...] }
+    """
+    payload = request.get_json(force=True, silent=True) or {}
+    course_key = str(payload.get("course_key") or "").strip()
+    try:
+        idx = int(payload.get("section_index"))
+    except Exception:
+        idx = -1
+    notes_in = payload.get("notes") or []
+
+    data = session.get("materia_actual") or {}
+    if not course_key or data.get("nombre") != course_key:
+        return jsonify({"ok": False, "error": "No hay materia configurada en sesión."}), 400
+
+    secciones = data.get("secciones") or []
+    labels = data.get("labels") or []
+    if idx < 0 or idx >= len(secciones):
+        return jsonify({"ok": False, "error": "Sección inválida."}), 400
+
+    # Sanitizar notas: solo números 0..100, ignorar vacíos
+    cleaned: list[dict] = []
+    for x in notes_in:
+        try:
+            v = float(x)
+        except Exception:
+            continue
+        if v < 0 or v > 100:
+            continue
+        cleaned.append({"score": float(v), "base": 100.0})
+
+    # limitar al total permitido en la sección
+    total = int(secciones[idx].get("num_notas", 0) or 0)
+    if total > 0 and len(cleaned) > total:
+        cleaned = cleaned[:total]
+
+    old = list(secciones[idx].get("notas_obtenidas") or [])
+    secciones[idx]["notas_obtenidas"] = cleaned
+    data["secciones"] = secciones
+    session["materia_actual"] = data
+    session.modified = True
+
+    # Persistir en BD si hay usuario
+    user_pk = session.get("user_pk")
+    meta = session.get("course_meta") or {}
+    term = data.get("term") or meta.get("term") or "default"
+    if user_pk:
+        from app.services.user_progress import save_section_notes
+        save_section_notes(
+            user_id=int(user_pk),
+            course_key=course_key,
+            section_position=int(idx),
+            num_notas=int(total),
+            notas_obtenidas=cleaned,
+            term=str(term),
+        )
+
+    # Log de observaciones (solo nuevas)
+    old_len = len(old)
+    new_len = len(cleaned)
+    if new_len > old_len:
+        # model_key agregado por materia (si existe code)
+        model_key = course_key
+        subject_id = meta.get("subject_id")
+        if subject_id:
+            db = SessionLocal()
+            try:
+                subj = db.query(Subject).filter(Subject.id == int(subject_id)).one_or_none()
+                if subj and subj.code:
+                    model_key = f"subj:{str(subj.code)}"
+            finally:
+                db.close()
+        eval_label = labels[idx] if idx < len(labels) else "Otros"
+        for k in range(old_len, new_len):
+            try:
+                s_val_norm = normalize_nota(cleaned[k])
+                log_observed_score(model_key, eval_label, s_val_norm)
+                resolve_predictions_with_new_score(course_key, eval_label, s_val_norm)
+            except Exception:
+                pass
 
     return jsonify({"ok": True})
 
