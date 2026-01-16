@@ -6,23 +6,25 @@
       class="rounded-3xl border border-slate-200 bg-slate-950 text-white overflow-hidden"
     >
       <div class="px-6 py-6 sm:px-10 sm:py-8">
-        <div class="text-center">
-          <div
-            class="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-slate-100"
-          >
-            Paso 1 de 4 · Selecciona tu materia
+        <!-- Paso 1 -->
+        <div id="step1">
+          <div class="text-center">
+            <div
+              class="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-slate-100"
+            >
+              Paso 1 de 4 · Selecciona tu materia
+            </div>
+            <h1 class="mt-4 text-2xl sm:text-3xl font-semibold tracking-tight">
+              Comencemos.
+            </h1>
+            <p class="mt-2 text-sm sm:text-base text-slate-200">
+              Elige el periodo, la materia y (opcionalmente) el profesor.
+              Puedes <span class="font-semibold text-white">escribir</span> para
+              filtrar la lista.
+            </p>
           </div>
-          <h1 class="mt-4 text-2xl sm:text-3xl font-semibold tracking-tight">
-            Comencemos.
-          </h1>
-          <p class="mt-2 text-sm sm:text-base text-slate-200">
-            Elige el periodo, la materia y (opcionalmente) el profesor.
-            Puedes <span class="font-semibold text-white">escribir</span> para
-            filtrar la lista.
-          </p>
-        </div>
 
-        <form id="wizard_form" method="post" action="{{ url_for('web.calcular') }}" class="mt-6 grid gap-4 justify-items-center">
+          <form id="wizard_form" method="post" action="{{ url_for('web.calcular') }}" class="mt-6 grid gap-4 justify-items-center">
           <div class="w-full grid gap-4">
             <div class="grid sm:grid-cols-2 gap-3">
               <label class="text-sm font-semibold text-slate-100">
@@ -106,45 +108,26 @@
             </label>
           </div>
 
-          <div class="mt-2 w-full flex flex-col items-center gap-3">
-            <div class="flex items-center justify-center gap-3">
-              <button
-                id="btn-continue"
-                class="rounded-xl bg-brand-600 hover:bg-brand-500 text-white px-6 py-2.5 font-semibold shadow-xl shadow-brand-600/25 focus:outline-none focus:ring-4 focus:ring-brand-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                type="submit"
-                disabled
-              >
-                Continuar
-              </button>
-              <a
-                href="{{ url_for('web.dashboard') }}"
-                class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-5 py-2.5 text-slate-100"
-                >Cancelar</a
-              >
-            </div>
-
-            <!-- Barra de progreso (flujo completo) -->
-            <div class="w-full max-w-lg text-center">
-              <div class="flex items-center justify-between text-xs text-slate-300">
-                <span>Progreso del flujo</span>
-                <span id="progressText">0%</span>
-              </div>
-              <div class="mt-2 h-2.5 w-full rounded-full bg-white/10 overflow-hidden">
-                <div
-                  id="progressBar"
-                  class="h-full rounded-full bg-gradient-to-r from-brand-600 to-indigo-400 transition-all duration-300"
-                  style="width: 0%;"
-                ></div>
-              </div>
-              <div class="mt-2 text-xs text-slate-300">
-                Completa el flujo hasta proyectar la materia.
-              </div>
-            </div>
+          <div class="mt-6 w-full flex items-center justify-between gap-3">
+            <a
+              href="{{ url_for('web.dashboard') }}"
+              class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-5 py-2.5 text-slate-100"
+              >Cancelar</a
+            >
+            <button
+              id="btn-continue"
+              class="rounded-xl bg-brand-600 hover:bg-brand-500 text-white px-6 py-2.5 font-semibold shadow-xl shadow-brand-600/25 focus:outline-none focus:ring-4 focus:ring-brand-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              type="submit"
+              disabled
+            >
+              Continuar
+            </button>
           </div>
         </form>
+        </div>
 
         <!-- Paso 2: Secciones (inline) -->
-        <div id="step2" class="hidden mt-8">
+        <div id="step2" class="hidden">
           <div class="text-center">
             <div class="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-slate-100">
               Paso 2 de 4 · Configura tus secciones
@@ -160,26 +143,26 @@
               <span>Suma de porcentajes</span>
               <span id="secSum" class="font-semibold">0%</span>
             </div>
+            <div class="mt-3 flex justify-end">
+              <button id="btnAddSec" type="button" class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-4 py-2 text-slate-100">
+                + Añadir sección
+              </button>
+            </div>
             <div class="mt-3 grid gap-3" id="secRows"></div>
 
-            <div class="mt-4 flex flex-col items-center gap-3">
-              <div class="flex items-center gap-3">
-                <button id="btnAddSec" type="button" class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-4 py-2 text-slate-100">
-                  + Añadir sección
-                </button>
-                <button id="btnSaveSec" type="button" class="rounded-xl bg-brand-600 hover:bg-brand-500 text-white px-6 py-2 font-semibold disabled:opacity-50 disabled:cursor-not-allowed" disabled>
-                  Continuar
-                </button>
-                <button id="btnBack1" type="button" class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-4 py-2 text-slate-100">
-                  Volver
-                </button>
-              </div>
+            <div class="mt-6 flex items-center justify-between gap-3">
+              <button id="btnBack1" type="button" class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-5 py-2.5 text-slate-100">
+                Volver
+              </button>
+              <button id="btnSaveSec" type="button" class="rounded-xl bg-brand-600 hover:bg-brand-500 text-white px-6 py-2.5 font-semibold disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                Continuar
+              </button>
             </div>
           </div>
         </div>
 
         <!-- Paso 3: Proyectar (inline) -->
-        <div id="step3" class="hidden mt-8">
+        <div id="step3" class="hidden">
           <div class="text-center">
             <div class="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-slate-100">
               Paso 3 de 4 · Proyectar materia
@@ -201,12 +184,12 @@
                   <option value="F">F (≤60)</option>
                 </select>
               </label>
-              <div class="flex items-center gap-3">
-                <button id="btnProject" type="button" class="rounded-xl bg-brand-600 hover:bg-brand-500 text-white px-6 py-2 font-semibold disabled:opacity-50 disabled:cursor-not-allowed" disabled>
-                  Proyectar
-                </button>
-                <button id="btnBack2" type="button" class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-4 py-2 text-slate-100">
+              <div class="mt-4 w-full flex items-center justify-between gap-3 max-w-md">
+                <button id="btnBack2" type="button" class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-5 py-2.5 text-slate-100">
                   Volver
+                </button>
+                <button id="btnProject" type="button" class="rounded-xl bg-brand-600 hover:bg-brand-500 text-white px-6 py-2.5 font-semibold disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                  Proyectar
                 </button>
               </div>
             </div>
@@ -217,6 +200,21 @@
               </div>
               <div id="plansContainer" class="mt-4 grid gap-3"></div>
             </div>
+          </div>
+        </div>
+
+        <!-- Progreso (siempre debajo del paso activo) -->
+        <div class="mt-6">
+          <div class="flex items-center justify-between text-xs text-slate-300">
+            <span>Progreso del flujo</span>
+            <span id="progressText">0%</span>
+          </div>
+          <div class="mt-2 h-2.5 w-full rounded-full bg-white/10 overflow-hidden">
+            <div
+              id="progressBar"
+              class="h-full rounded-full bg-gradient-to-r from-brand-600 to-indigo-400 transition-all duration-300"
+              style="width: 0%;"
+            ></div>
           </div>
         </div>
       </div>
@@ -442,6 +440,7 @@
   updateUi();
 
   // ---------------- Wizard (same page): Step 1 -> Step 2 -> Step 3 ----------------
+  const step1 = document.getElementById("step1");
   const step2 = document.getElementById("step2");
   const step3 = document.getElementById("step3");
   const secRows = document.getElementById("secRows");
@@ -512,6 +511,7 @@
     secRows.innerHTML = "";
     (recommended || []).forEach((s) => secRows.appendChild(secRow(s)));
     updateSecSum();
+    step1.classList.add("hidden");
     step2.classList.remove("hidden");
     step3.classList.add("hidden");
     projectOut.classList.add("hidden");
@@ -521,6 +521,7 @@
   }
 
   function showStep3() {
+    step1.classList.add("hidden");
     step3.classList.remove("hidden");
     step2.classList.add("hidden");
     projectOut.classList.add("hidden");
@@ -547,8 +548,9 @@
 
   btnBack1?.addEventListener("click", () => {
     step2.classList.add("hidden");
-    progressBar.style.width = "33%";
-    progressText.textContent = "33%";
+    step1.classList.remove("hidden");
+    // vuelve a progreso del paso 1 (según inputs)
+    updateUi();
   });
 
   btnAddSec?.addEventListener("click", () => {
@@ -583,6 +585,172 @@
     progressText.textContent = "33%";
   });
 
+  function difficultyLabel(p) {
+    if (p >= 0.80) return "Fácil";
+    if (p >= 0.60) return "Alcanzable";
+    if (p >= 0.40) return "Promedio";
+    if (p >= 0.20) return "Difícil";
+    return "Legendario";
+  }
+
+  async function evalPlan(courseKey, targets) {
+    const res = await fetch(`/materia/${encodeURIComponent(courseKey)}/plan-eval`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targets, mc_samples: 8000 }),
+    });
+    return await res.json();
+  }
+
+  async function savePlan(courseKey, targets) {
+    const res = await fetch(`/materia/${encodeURIComponent(courseKey)}/guardar-plan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targets }),
+    });
+    return await res.json();
+  }
+
+  function renderEditablePlanCard(plan, idx) {
+    const card = document.createElement("div");
+    card.className = "rounded-2xl border border-white/10 bg-white/5 p-4";
+
+    const targets = { ...(plan.targets || {}) };
+    const title = `Plan destacado #${idx + 1}`;
+    const prob = ((plan.mc_prob || 0) * 100).toFixed(1);
+    const diff = plan.difficulty || difficultyLabel(plan.mc_prob || 0);
+    const sumContrib = plan.sum_contrib ?? "";
+
+    card.innerHTML = `
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div class="text-xs text-slate-300">${title}</div>
+          <div class="mt-1 flex flex-wrap items-center gap-2">
+            <span class="inline-flex items-center rounded-full bg-brand-600 text-white px-3 py-1 text-xs font-semibold">
+              Prob: <span class="ml-1" data-prob>${prob}%</span>
+            </span>
+            <span class="inline-flex items-center rounded-full bg-white/10 text-slate-100 px-3 py-1 text-xs font-semibold" data-diff>
+              ${diff}
+            </span>
+            <span class="inline-flex items-center rounded-full bg-slate-900 text-white px-3 py-1 text-xs font-semibold">
+              Aporte: <span class="ml-1" data-contrib>+${sumContrib}</span>
+            </span>
+          </div>
+          <div class="mt-2 hidden rounded-lg border border-rose-200 bg-rose-50 text-rose-800 px-3 py-2 text-sm" data-warn>
+            Con estas metas no llegas al objetivo.
+          </div>
+          <div class="mt-2 hidden rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 px-3 py-2 text-sm" data-saved>
+            Plan guardado en tu perfil.
+          </div>
+        </div>
+        <div class="text-right">
+          <button type="button" class="rounded-xl bg-slate-900 hover:bg-slate-950 text-white px-4 py-2 text-sm font-semibold" data-save>
+            Guardar plan
+          </button>
+        </div>
+      </div>
+      <div class="mt-3 overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="text-slate-200/80">
+            <tr>
+              <th class="text-left py-2 pr-3">Evaluación</th>
+              <th class="text-left py-2 pr-3">Meta</th>
+              <th class="text-left py-2 pr-3">Prob</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-white/10" data-rows>
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    const rowsEl = card.querySelector("[data-rows]");
+    (plan.details || []).forEach((d) => {
+      const tr = document.createElement("tr");
+      tr.dataset.evalId = d.eval_id;
+      tr.innerHTML = `
+        <td class="py-2 pr-3 text-slate-100">${d.name}</td>
+        <td class="py-2 pr-3">
+          <div class="inline-flex items-center gap-2">
+            <button type="button" class="px-2 py-1 rounded border border-white/15 bg-white/5 hover:bg-white/10 text-slate-100 btn-minus">−</button>
+            <input type="number" min="0" max="100" step="1"
+              class="w-20 rounded-lg border border-white/10 bg-white text-slate-900 px-2 py-1 font-mono plan-target"
+              value="${d.target}">
+            <button type="button" class="px-2 py-1 rounded border border-white/15 bg-white/5 hover:bg-white/10 text-slate-100 btn-plus">+</button>
+          </div>
+        </td>
+        <td class="py-2 pr-3 text-slate-100 font-mono"><span class="plan-ptail">${((d.p_tail || 0) * 100).toFixed(1)}%</span></td>
+      `;
+      rowsEl.appendChild(tr);
+      targets[d.eval_id] = d.target;
+    });
+
+    let tmr = null;
+    async function refresh() {
+      const out = await evalPlan(wizardCourseKey, targets);
+      if (!out || !out.ok || !out.plan) return;
+      const p = out.plan;
+      card.querySelector("[data-prob]").textContent = `${(p.mc_prob * 100).toFixed(1)}%`;
+      card.querySelector("[data-diff]").textContent = p.difficulty || difficultyLabel(p.mc_prob || 0);
+      card.querySelector("[data-contrib]").textContent = `+${p.sum_contrib ?? ""}`;
+
+      const warn = card.querySelector("[data-warn]");
+      const bad = !p.llega_objetivo;
+      warn.classList.toggle("hidden", !bad);
+      card.classList.toggle("border-rose-300", bad);
+      card.classList.toggle("bg-rose-50", bad);
+
+      const dmap = {};
+      (p.details || []).forEach((d) => (dmap[d.eval_id] = d));
+      card.querySelectorAll("tr[data-eval-id]").forEach((tr) => {
+        const eid = tr.dataset.evalId;
+        const d = dmap[eid];
+        if (!d) return;
+        const input = tr.querySelector(".plan-target");
+        const pt = tr.querySelector(".plan-ptail");
+        input.value = String(d.target);
+        pt.textContent = `${(Number(d.p_tail || 0) * 100).toFixed(1)}%`;
+        targets[eid] = d.target;
+      });
+    }
+
+    function schedule() {
+      if (tmr) clearTimeout(tmr);
+      tmr = setTimeout(refresh, 250);
+    }
+
+    card.querySelectorAll("tr[data-eval-id]").forEach((tr) => {
+      const eid = tr.dataset.evalId;
+      const input = tr.querySelector(".plan-target");
+      const minus = tr.querySelector(".btn-minus");
+      const plus = tr.querySelector(".btn-plus");
+      function setVal(v) {
+        const nv = Math.max(0, Math.min(100, Number(v) || 0));
+        input.value = String(nv);
+        targets[eid] = nv;
+        schedule();
+      }
+      minus.addEventListener("click", () => setVal(Number(input.value) - 1));
+      plus.addEventListener("click", () => setVal(Number(input.value) + 1));
+      input.addEventListener("input", () => setVal(input.value));
+    });
+
+    card.querySelector("[data-save]").addEventListener("click", async () => {
+      const savedEl = card.querySelector("[data-saved]");
+      savedEl.classList.add("hidden");
+      const out = await savePlan(wizardCourseKey, targets);
+      if (out && out.ok) {
+        savedEl.classList.remove("hidden");
+        return;
+      }
+      alert((out && (out.error || out.message)) || "No se pudo guardar el plan.");
+    });
+
+    // Primer refresh para que sea totalmente dinámico
+    schedule();
+    return card;
+  }
+
   btnProject?.addEventListener("click", async () => {
     if (!wizardCourseKey) return;
     const out = await apiPost("/api/wizard/proyectar", { course_key: wizardCourseKey, objetivo_grade: objGrade.value });
@@ -594,43 +762,7 @@
     baselinePct.textContent = `${((r.baseline_prob || 0) * 100).toFixed(1)}%`;
     plansContainer.innerHTML = "";
     const plans = (r.highlighted_plans || []).slice(0, 3);
-    plans.forEach((p, i) => {
-      const card = document.createElement("div");
-      card.className = "rounded-2xl border border-white/10 bg-white/5 p-4";
-      card.innerHTML = `
-        <div class="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <div class="text-xs text-slate-300">Plan destacado #${i + 1}</div>
-            <div class="text-2xl font-bold text-white">${((p.mc_prob || 0) * 100).toFixed(1)}%</div>
-            <div class="text-xs text-slate-300">Probabilidad de cumplirlo</div>
-          </div>
-          <div class="text-right">
-            <div class="text-xs text-slate-300">Aporte</div>
-            <div class="text-xl font-semibold text-white">+${p.sum_contrib ?? ""}</div>
-          </div>
-        </div>
-        <div class="mt-3 overflow-x-auto">
-          <table class="min-w-full text-sm">
-            <thead class="text-slate-200/80">
-              <tr>
-                <th class="text-left py-2 pr-3">Evaluación</th>
-                <th class="text-left py-2 pr-3">Meta</th>
-                <th class="text-left py-2 pr-3">Prob</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-white/10">
-              ${(p.details || []).map((d) => `
-                <tr>
-                  <td class="py-2 pr-3 text-slate-100">${d.name}</td>
-                  <td class="py-2 pr-3 text-slate-100 font-mono">${d.target}</td>
-                  <td class="py-2 pr-3 text-slate-100 font-mono">${((d.p_tail || 0) * 100).toFixed(1)}%</td>
-                </tr>`).join("")}
-            </tbody>
-          </table>
-        </div>
-      `;
-      plansContainer.appendChild(card);
-    });
+    plans.forEach((p, i) => plansContainer.appendChild(renderEditablePlanCard(p, i)));
     projectOut.classList.remove("hidden");
     progressBar.style.width = "100%";
     progressText.textContent = "100%";
