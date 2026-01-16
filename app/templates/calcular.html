@@ -1,91 +1,151 @@
 {% extends "base.html" %} {% block title %}Nueva materia — CalcuNota{% endblock
 %} {% block content %}
-<div class="max-w-xl">
-  <h1 class="text-xl font-semibold text-slate-900">Crear materia</h1>
-  <p class="text-slate-600 mt-1">
-    Elige una materia (y opcionalmente un profesor) o crea una nueva.
-  </p>
-
-  <form
-    method="post"
-    action="{{ url_for('web.calcular') }}"
-    class="mt-4 grid gap-3"
-  >
-    <div class="grid sm:grid-cols-2 gap-3">
-      <label class="text-sm text-slate-700">
-        Periodo
-        <select
-          name="periodo_semestre"
-          class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
-        >
-          <option value="S1" {% if default_semestre == "S1" %}selected{% endif %}>Primer semestre</option>
-          <option value="S2" {% if default_semestre == "S2" %}selected{% endif %}>Segundo semestre</option>
-          <option value="V"  {% if default_semestre == "V" %}selected{% endif %}>Verano</option>
-        </select>
-      </label>
-
-      <label class="text-sm text-slate-700">
-        Año
-        <select
-          name="periodo_anio"
-          class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
-        >
-          {% for y in years or [] %}
-            <option value="{{ y }}" {% if default_anio == y %}selected{% endif %}>{{ y }}</option>
-          {% endfor %}
-        </select>
-      </label>
-    </div>
-
-    <label class="text-sm text-slate-700">Materia</label>
-    <select
-      id="subject_id"
-      name="subject_id"
-      class="rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
+<div class="flex justify-center">
+  <section class="w-full max-w-2xl">
+    <div
+      class="rounded-3xl border border-slate-200 bg-slate-950 text-white overflow-hidden"
     >
-      <option value="">— Selecciona —</option>
-      {% for s in subjects or [] %}
-      <option value="{{ s.id }}">{{ s.name }}</option>
-      {% endfor %}
-      <option value="custom">Otra (escribir)</option>
-    </select>
+      <div class="px-6 py-6 sm:px-10 sm:py-8">
+        <div class="text-center">
+          <div
+            class="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-slate-100"
+          >
+            Paso 1 de 4 · Selecciona tu materia
+          </div>
+          <h1 class="mt-4 text-2xl sm:text-3xl font-semibold tracking-tight">
+            Comencemos.
+          </h1>
+          <p class="mt-2 text-sm sm:text-base text-slate-200">
+            Elige el periodo y la materia. Si no está en la lista, selecciónala
+            como <span class="font-semibold text-white">Otra</span> y escribe el
+            nombre.
+          </p>
+        </div>
 
-    <div id="custom_subject_wrap" class="hidden">
-      <label class="text-sm text-slate-700">Nombre de la materia</label>
-      <input
-        name="materia_custom"
-        type="text"
-        placeholder="Ej. Física I"
-        class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
-      />
+        <form
+          method="post"
+          action="{{ url_for('web.calcular') }}"
+          class="mt-6 grid gap-4 justify-items-center"
+        >
+          <div class="w-full grid gap-4">
+            <div class="grid sm:grid-cols-2 gap-3">
+              <label class="text-sm font-semibold text-slate-100">
+                Periodo
+                <select
+                  id="periodo_semestre"
+                  name="periodo_semestre"
+                  class="mt-1 w-full rounded-xl border border-white/10 px-3 py-2 bg-white/5 text-white focus:outline-none focus:ring-4 focus:ring-brand-500/30"
+                >
+                  <option value="S1" {% if default_semestre == "S1" %}selected{% endif %}>Primer semestre</option>
+                  <option value="S2" {% if default_semestre == "S2" %}selected{% endif %}>Segundo semestre</option>
+                  <option value="V"  {% if default_semestre == "V" %}selected{% endif %}>Verano</option>
+                </select>
+              </label>
+
+              <label class="text-sm font-semibold text-slate-100">
+                Año
+                <select
+                  id="periodo_anio"
+                  name="periodo_anio"
+                  class="mt-1 w-full rounded-xl border border-white/10 px-3 py-2 bg-white/5 text-white focus:outline-none focus:ring-4 focus:ring-brand-500/30"
+                >
+                  {% for y in years or [] %}
+                    <option value="{{ y }}" {% if default_anio == y %}selected{% endif %}>{{ y }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+            </div>
+
+            <label class="text-sm font-semibold text-slate-100">
+              Materia
+              <select
+                id="subject_id"
+                name="subject_id"
+                class="mt-1 w-full rounded-xl border border-white/10 px-3 py-2 bg-white/5 text-white focus:outline-none focus:ring-4 focus:ring-brand-500/30"
+              >
+                <option value="">— Selecciona una materia —</option>
+                {% for s in subjects or [] %}
+                <option value="{{ s.id }}">{{ s.name }}</option>
+                {% endfor %}
+                <option value="custom">Otra (escribir)</option>
+              </select>
+              <div class="mt-1 text-xs text-slate-300">
+                Consejo: si tu materia está en el catálogo, usa esa opción para
+                mejores probabilidades iniciales.
+              </div>
+            </label>
+
+            <div id="custom_subject_wrap" class="hidden">
+              <label class="text-sm font-semibold text-slate-100">
+                Nombre de la materia
+                <input
+                  id="materia_custom"
+                  name="materia_custom"
+                  type="text"
+                  placeholder="Ej. Física I"
+                  class="mt-1 w-full rounded-xl border border-white/10 px-3 py-2 bg-white/5 text-white placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-brand-500/30"
+                />
+              </label>
+            </div>
+
+            <label class="text-sm font-semibold text-slate-100">
+              Profesor <span class="text-slate-300 font-medium">(opcional)</span>
+              <select
+                id="professor_id"
+                name="professor_id"
+                class="mt-1 w-full rounded-xl border border-white/10 px-3 py-2 bg-white/5 text-white focus:outline-none focus:ring-4 focus:ring-brand-500/30"
+              >
+                <option value="">— Sin profesor —</option>
+                {% for p in professors or [] %}
+                <option value="{{ p.id }}">{{ p.name }}</option>
+                {% endfor %}
+              </select>
+              <div class="mt-1 text-xs text-slate-300">
+                Elegir profesor ayuda a personalizar recomendaciones si la base
+                crece.
+              </div>
+            </label>
+          </div>
+
+          <div class="mt-2 w-full flex flex-col items-center gap-3">
+            <div class="flex items-center justify-center gap-3">
+              <button
+                id="btn-continue"
+                class="rounded-xl bg-brand-600 hover:bg-brand-500 text-white px-6 py-2.5 font-semibold shadow-xl shadow-brand-600/25 focus:outline-none focus:ring-4 focus:ring-brand-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                type="submit"
+                disabled
+              >
+                Continuar
+              </button>
+              <a
+                href="{{ url_for('web.dashboard') }}"
+                class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-5 py-2.5 text-slate-100"
+                >Cancelar</a
+              >
+            </div>
+
+            <!-- Barra de progreso (feedback) -->
+            <div class="w-full max-w-lg text-center">
+              <div class="flex items-center justify-between text-xs text-slate-300">
+                <span>Progreso</span>
+                <span id="progressText">0%</span>
+              </div>
+              <div class="mt-2 h-2.5 w-full rounded-full bg-white/10 overflow-hidden">
+                <div
+                  id="progressBar"
+                  class="h-full rounded-full bg-gradient-to-r from-brand-600 to-indigo-400 transition-all duration-300"
+                  style="width: 0%;"
+                ></div>
+              </div>
+              <div class="mt-2 text-xs text-slate-300">
+                Completa los campos para continuar. Es rápido.
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
     </div>
-
-    <label class="text-sm text-slate-700">Profesor (opcional)</label>
-    <select
-      id="professor_id"
-      name="professor_id"
-      class="rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
-    >
-      <option value="">— Sin profesor —</option>
-      {% for p in professors or [] %}
-      <option value="{{ p.id }}">{{ p.name }}</option>
-      {% endfor %}
-    </select>
-
-    <div class="flex items-center gap-3">
-      <button
-        class="rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-4 py-2"
-        type="submit"
-      >
-        Continuar
-      </button>
-      <a
-        href="{{ url_for('web.dashboard') }}"
-        class="text-slate-600 hover:text-slate-900"
-        >Cancelar</a
-      >
-    </div>
-  </form>
+  </section>
 </div>
 
 {% block body_extra %}
@@ -93,6 +153,12 @@
   const subjectSel = document.getElementById("subject_id");
   const profSel = document.getElementById("professor_id");
   const customWrap = document.getElementById("custom_subject_wrap");
+  const customInput = document.getElementById("materia_custom");
+  const semSel = document.getElementById("periodo_semestre");
+  const yearSel = document.getElementById("periodo_anio");
+  const progressBar = document.getElementById("progressBar");
+  const progressText = document.getElementById("progressText");
+  const continueBtn = document.getElementById("btn-continue");
   const profMap = {{ (prof_map or {})|tojson }};
 
   function updateUi() {
@@ -115,8 +181,32 @@
     if (profSel.selectedOptions.length && profSel.selectedOptions[0].hidden) {
       profSel.value = "";
     }
+
+    // progreso: 4 checks
+    const checks = [
+      Boolean(semSel && semSel.value),
+      Boolean(yearSel && yearSel.value),
+      Boolean(sid && sid !== "custom") || (isCustom && Boolean((customInput?.value || "").trim())),
+      // profesor es opcional: suma si está seleccionado (solo para feedback)
+      Boolean((profSel?.value || "").trim()),
+    ];
+    const done = checks.filter(Boolean).length;
+    const pct = Math.round((done / checks.length) * 100);
+    progressBar.style.width = `${pct}%`;
+    progressText.textContent = `${pct}%`;
+
+    // habilitar continuar con requisitos mínimos
+    const canContinue =
+      Boolean(semSel && semSel.value) &&
+      Boolean(yearSel && yearSel.value) &&
+      (Boolean(sid && sid !== "custom") || Boolean(isCustom && (customInput?.value || "").trim()));
+    continueBtn.disabled = !canContinue;
   }
   subjectSel?.addEventListener("change", updateUi);
+  customInput?.addEventListener("input", updateUi);
+  semSel?.addEventListener("change", updateUi);
+  yearSel?.addEventListener("change", updateUi);
+  profSel?.addEventListener("change", updateUi);
   updateUi();
 </script>
 {% endblock %}
