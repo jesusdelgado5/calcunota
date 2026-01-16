@@ -284,12 +284,18 @@ def calcular():
     finally:
         db.close()
 
+    # Pre-serializados para JS (evita lógica compleja en Jinja)
+    subjects_json = [{"id": int(s.id), "name": str(s.name)} for s in (subjects or [])]
+    professors_json = [{"id": int(p.id), "name": str(p.name)} for p in (professors or [])]
+
     return render_template(
         "calcular.html",
         active="calcular",
         is_auth=is_auth(),
         subjects=subjects,
         professors=professors,
+        subjects_json=subjects_json,
+        professors_json=professors_json,
         prof_map=prof_map,
         years=years,
         default_semestre=default_semestre,

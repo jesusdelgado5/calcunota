@@ -187,8 +187,10 @@
   const progressText = document.getElementById("progressText");
   const continueBtn = document.getElementById("btn-continue");
   const profMap = {{ (prof_map or {})|tojson }};
-  const subjectsByName = {{ ({(s.name): s.id for s in (subjects or [])} )|tojson }};
-  const professorsByName = {{ ({(p.name): p.id for p in (professors or [])} )|tojson }};
+  const subjectsList = {{ (subjects_json or [])|tojson }};
+  const professorsList = {{ (professors_json or [])|tojson }};
+  const subjectsByName = Object.fromEntries((subjectsList || []).map((s) => [s.name, s.id]));
+  const professorsByName = Object.fromEntries((professorsList || []).map((p) => [p.name, p.id]));
 
   function normKey(s) {
     return String(s || "").trim().toLowerCase();
