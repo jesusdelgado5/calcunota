@@ -222,9 +222,26 @@ def wizard_notes_save():
     if idx < 0 or idx >= len(secciones):
         return jsonify({"ok": False, "error": "Sección inválida."}), 400
 
-    # Sanitizar notas: solo números 0..100, ignorar vacíos
+    # Sanitizar notas:
+    # - acepta números (0..100) => base=100
+    # - acepta dict {score, base} => se valida score/base
     cleaned: list[dict] = []
     for x in notes_in:
+        # Caso dict: {score, base}
+        if isinstance(x, dict):
+            try:
+                score = float(x.get("score"))
+                base = float(x.get("base", 100.0))
+            except Exception:
+                continue
+            if base <= 0:
+                continue
+            if score < 0 or score > base:
+                continue
+            cleaned.append({"score": float(score), "base": float(base)})
+            continue
+
+        # Caso numérico: se asume escala 0..100
         try:
             v = float(x)
         except Exception:
