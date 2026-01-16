@@ -36,21 +36,14 @@ def _default_sections_for_subject(subject_name: str) -> list[dict]:
     """
     Distribución predeterminada (porcentaje en fracción 0..1) para reducir clicks.
     """
-    name = (subject_name or "").upper()
+    # Default solicitado por UX: mínimo trabajo, distribución estable para todas las materias.
+    # Nota: porcentaje aquí es fracción (0..1), luego se normaliza por si cambia en el futuro.
     base = [
-        {"label": "Semestral", "porcentaje": 0.35, "num_notas": 1},
         {"label": "Parciales", "porcentaje": 0.35, "num_notas": 4},
         {"label": "Tareas", "porcentaje": 0.25, "num_notas": 8},
         {"label": "Asistencia", "porcentaje": 0.05, "num_notas": 1},
+        {"label": "Semestral", "porcentaje": 0.35, "num_notas": 1},
     ]
-    if any(k in name for k in ["CALCULO", "FISICA", "QUIMICA"]):
-        base = [
-            {"label": "Semestral", "porcentaje": 0.35, "num_notas": 1},
-            {"label": "Parciales", "porcentaje": 0.35, "num_notas": 4},
-            {"label": "Quices", "porcentaje": 0.10, "num_notas": 4},
-            {"label": "Tareas", "porcentaje": 0.15, "num_notas": 6},
-            {"label": "Asistencia", "porcentaje": 0.05, "num_notas": 1},
-        ]
     s = sum(float(x["porcentaje"]) for x in base) or 1.0
     for x in base:
         x["label"] = normalize_section_label(x["label"])
@@ -198,6 +191,12 @@ def wizard_state():
     data = session.get("materia_actual") or {}
     meta = session.get("course_meta") or {}
     return jsonify({"ok": True, "materia_actual": data, "course_meta": meta})
+
+
+@api_bp.post("/wizard/state")
+def wizard_state_post():
+    """Alias POST para compatibilidad con el frontend del wizard."""
+    return wizard_state()
 
 
 @api_bp.post("/wizard/notes/save")
