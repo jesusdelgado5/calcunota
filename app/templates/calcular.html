@@ -22,11 +22,7 @@
           </p>
         </div>
 
-        <form
-          method="post"
-          action="{{ url_for('web.calcular') }}"
-          class="mt-6 grid gap-4 justify-items-center"
-        >
+        <form id="wizard_form" method="post" action="{{ url_for('web.calcular') }}" class="mt-6 grid gap-4 justify-items-center">
           <div class="w-full grid gap-4">
             <div class="grid sm:grid-cols-2 gap-3">
               <label class="text-sm font-semibold text-slate-100">
@@ -127,10 +123,10 @@
               >
             </div>
 
-            <!-- Barra de progreso (feedback) -->
+            <!-- Barra de progreso (flujo completo) -->
             <div class="w-full max-w-lg text-center">
               <div class="flex items-center justify-between text-xs text-slate-300">
-                <span>Progreso</span>
+                <span>Progreso del flujo</span>
                 <span id="progressText">0%</span>
               </div>
               <div class="mt-2 h-2.5 w-full rounded-full bg-white/10 overflow-hidden">
@@ -141,11 +137,88 @@
                 ></div>
               </div>
               <div class="mt-2 text-xs text-slate-300">
-                Completa los campos para continuar. Es rápido.
+                Completa el flujo hasta proyectar la materia.
               </div>
             </div>
           </div>
         </form>
+
+        <!-- Paso 2: Secciones (inline) -->
+        <div id="step2" class="hidden mt-8">
+          <div class="text-center">
+            <div class="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-slate-100">
+              Paso 2 de 4 · Configura tus secciones
+            </div>
+            <h2 class="mt-4 text-xl sm:text-2xl font-semibold tracking-tight">Secciones predeterminadas</h2>
+            <p class="mt-2 text-sm text-slate-200">
+              Ya te dejamos una distribución lista. Ajusta si lo necesitas.
+            </p>
+          </div>
+
+          <div class="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div class="flex items-center justify-between text-sm text-slate-200">
+              <span>Suma de porcentajes</span>
+              <span id="secSum" class="font-semibold">0%</span>
+            </div>
+            <div class="mt-3 grid gap-3" id="secRows"></div>
+
+            <div class="mt-4 flex flex-col items-center gap-3">
+              <div class="flex items-center gap-3">
+                <button id="btnAddSec" type="button" class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-4 py-2 text-slate-100">
+                  + Añadir sección
+                </button>
+                <button id="btnSaveSec" type="button" class="rounded-xl bg-brand-600 hover:bg-brand-500 text-white px-6 py-2 font-semibold disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                  Continuar
+                </button>
+                <button id="btnBack1" type="button" class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-4 py-2 text-slate-100">
+                  Volver
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Paso 3: Proyectar (inline) -->
+        <div id="step3" class="hidden mt-8">
+          <div class="text-center">
+            <div class="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-slate-100">
+              Paso 3 de 4 · Proyectar materia
+            </div>
+            <h2 class="mt-4 text-xl sm:text-2xl font-semibold tracking-tight">Proyección</h2>
+            <p class="mt-2 text-sm text-slate-200">Selecciona tu objetivo y genera planes.</p>
+          </div>
+
+          <div class="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div class="flex flex-col items-center gap-3">
+              <label class="text-sm font-semibold text-slate-100 w-full max-w-md">
+                Objetivo (letra)
+                <select id="objGrade" class="mt-1 w-full rounded-xl border border-white/10 px-3 py-2 bg-white text-slate-900 focus:outline-none focus:ring-4 focus:ring-brand-500/30">
+                  <option value="">— Selecciona —</option>
+                  <option value="A">A (91+)</option>
+                  <option value="B">B (81–90)</option>
+                  <option value="C">C (71–80)</option>
+                  <option value="D">D (61–70)</option>
+                  <option value="F">F (≤60)</option>
+                </select>
+              </label>
+              <div class="flex items-center gap-3">
+                <button id="btnProject" type="button" class="rounded-xl bg-brand-600 hover:bg-brand-500 text-white px-6 py-2 font-semibold disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                  Proyectar
+                </button>
+                <button id="btnBack2" type="button" class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-4 py-2 text-slate-100">
+                  Volver
+                </button>
+              </div>
+            </div>
+
+            <div id="projectOut" class="mt-6 hidden">
+              <div class="text-sm text-slate-200 text-center">
+                Probabilidad base: <span id="baselinePct" class="font-bold text-white"></span>
+              </div>
+              <div id="plansContainer" class="mt-4 grid gap-3"></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -168,9 +241,14 @@
   const progressBar = document.getElementById("progressBar");
   const progressText = document.getElementById("progressText");
   const continueBtn = document.getElementById("btn-continue");
+  const formEl = document.getElementById("wizard_form");
   const profMap = {{ (prof_map or {})|tojson }};
   const subjectsList = {{ (subjects_json or [])|tojson }};
   const professorsList = {{ (professors_json or [])|tojson }};
+
+  // Wizard state
+  let wizardCourseKey = null;
+  let sectionTypes = [];
 
   function normKey(s) {
     return String(s || "").trim().toLowerCase();
@@ -189,6 +267,57 @@
     if (disabled) btn.disabled = true;
     if (!disabled) btn.addEventListener("click", onClick);
     return btn;
+  }
+
+  // --- Keyboard navigation for dropdowns (↑/↓/Enter/Esc) ---
+  function enableKeyboardNav(inputEl, dropdownEl, optionsEl, renderFn) {
+    let activeIndex = -1;
+    function getButtons() {
+      return Array.from(optionsEl.querySelectorAll("button")).filter((b) => !b.disabled);
+    }
+    function setActive(i) {
+      const btns = getButtons();
+      btns.forEach((b) => b.classList.remove("bg-slate-100"));
+      if (!btns.length) {
+        activeIndex = -1;
+        return;
+      }
+      activeIndex = Math.max(0, Math.min(btns.length - 1, i));
+      btns[activeIndex].classList.add("bg-slate-100");
+      btns[activeIndex].scrollIntoView({ block: "nearest" });
+    }
+    inputEl?.addEventListener("keydown", (e) => {
+      const isOpen = dropdownEl && !dropdownEl.classList.contains("hidden");
+      if (!isOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        show(dropdownEl);
+        renderFn(inputEl.value);
+        setActive(0);
+        e.preventDefault();
+        return;
+      }
+      if (!isOpen) return;
+      if (e.key === "ArrowDown") {
+        setActive(activeIndex + 1);
+        e.preventDefault();
+      } else if (e.key === "ArrowUp") {
+        setActive(activeIndex - 1);
+        e.preventDefault();
+      } else if (e.key === "Enter") {
+        const btns = getButtons();
+        if (btns.length && activeIndex >= 0) {
+          btns[activeIndex].click();
+          e.preventDefault();
+        }
+      } else if (e.key === "Escape") {
+        hide(dropdownEl);
+      }
+    });
+    inputEl?.addEventListener("input", () => {
+      activeIndex = -1;
+    });
+    inputEl?.addEventListener("focus", () => {
+      activeIndex = -1;
+    });
   }
 
   function renderSubjects(filterText) {
@@ -261,7 +390,8 @@
       Boolean((profId?.value || "").trim()),
     ];
     const done = checks.filter(Boolean).length;
-    const pct = Math.round((done / checks.length) * 100);
+    // Paso 1 representa 33% del flujo completo
+    const pct = Math.round((done / checks.length) * 33);
     progressBar.style.width = `${pct}%`;
     progressText.textContent = `${pct}%`;
 
@@ -307,7 +437,204 @@
   // init
   renderSubjects("");
   renderProfessors("");
+  enableKeyboardNav(subjectInput, subjectDropdown, subjectOptions, renderSubjects);
+  enableKeyboardNav(profInput, profDropdown, profOptions, renderProfessors);
   updateUi();
+
+  // ---------------- Wizard (same page): Step 1 -> Step 2 -> Step 3 ----------------
+  const step2 = document.getElementById("step2");
+  const step3 = document.getElementById("step3");
+  const secRows = document.getElementById("secRows");
+  const secSum = document.getElementById("secSum");
+  const btnAddSec = document.getElementById("btnAddSec");
+  const btnSaveSec = document.getElementById("btnSaveSec");
+  const btnBack1 = document.getElementById("btnBack1");
+  const objGrade = document.getElementById("objGrade");
+  const btnProject = document.getElementById("btnProject");
+  const btnBack2 = document.getElementById("btnBack2");
+  const projectOut = document.getElementById("projectOut");
+  const baselinePct = document.getElementById("baselinePct");
+  const plansContainer = document.getElementById("plansContainer");
+
+  async function apiPost(url, body) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return await res.json();
+  }
+
+  function secRow(item) {
+    const d = document.createElement("div");
+    d.className = "grid grid-cols-12 gap-3 rounded-xl border border-white/10 bg-white/5 p-3";
+    const opts = (sectionTypes || []).map((t) => `<option value="${t}">${t}</option>`).join("");
+    d.innerHTML = `
+      <div class="col-span-12 sm:col-span-5">
+        <label class="text-xs text-slate-200 font-semibold">Sección</label>
+        <select class="mt-1 w-full rounded-xl border border-white/10 px-3 py-2 bg-white text-slate-900 sec-type">${opts}</select>
+      </div>
+      <div class="col-span-6 sm:col-span-3">
+        <label class="text-xs text-slate-200 font-semibold">% (%)</label>
+        <input type="number" min="0" max="100" step="0.1" class="mt-1 w-full rounded-xl border border-white/10 px-3 py-2 bg-white text-slate-900 sec-pct" />
+      </div>
+      <div class="col-span-5 sm:col-span-3">
+        <label class="text-xs text-slate-200 font-semibold"># notas</label>
+        <input type="number" min="0" step="1" class="mt-1 w-full rounded-xl border border-white/10 px-3 py-2 bg-white text-slate-900 sec-n" />
+      </div>
+      <div class="col-span-1 flex items-end justify-end">
+        <button type="button" class="rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 px-3 py-2 text-slate-100 btn-del">✕</button>
+      </div>
+    `;
+    d.querySelector(".sec-type").value = item.label || "Otros";
+    d.querySelector(".sec-pct").value = String(item.porcentaje ?? 0);
+    d.querySelector(".sec-n").value = String(item.num_notas ?? 0);
+    d.querySelector(".btn-del").addEventListener("click", () => {
+      d.remove();
+      updateSecSum();
+    });
+    d.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", updateSecSum));
+    return d;
+  }
+
+  function updateSecSum() {
+    const rows = Array.from(secRows.querySelectorAll(".sec-pct"));
+    const sum = rows.reduce((a, el) => a + (parseFloat(el.value || "0") || 0), 0);
+    secSum.textContent = `${sum.toFixed(1)}%`;
+    const ok = Math.abs(sum - 100) < 0.2;
+    secSum.className = ok ? "font-semibold text-emerald-300" : "font-semibold text-amber-300";
+    btnSaveSec.disabled = !ok || secRows.children.length === 0;
+  }
+
+  function showStep2(recommended, types, courseKey) {
+    wizardCourseKey = courseKey;
+    sectionTypes = types || [];
+    secRows.innerHTML = "";
+    (recommended || []).forEach((s) => secRows.appendChild(secRow(s)));
+    updateSecSum();
+    step2.classList.remove("hidden");
+    step3.classList.add("hidden");
+    projectOut.classList.add("hidden");
+    progressBar.style.width = "33%";
+    progressText.textContent = "33%";
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function showStep3() {
+    step3.classList.remove("hidden");
+    step2.classList.add("hidden");
+    projectOut.classList.add("hidden");
+    progressBar.style.width = "66%";
+    progressText.textContent = "66%";
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  formEl?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (continueBtn.disabled) return;
+    const out = await apiPost("/api/wizard/start", {
+      periodo_semestre: semSel.value,
+      periodo_anio: yearSel.value,
+      subject_id: subjectId.value,
+      professor_id: profId.value || "",
+    });
+    if (!out || !out.ok) {
+      alert((out && (out.error || out.message)) || "No se pudo iniciar el flujo.");
+      return;
+    }
+    showStep2(out.recommended, out.section_types, out.course_key);
+  });
+
+  btnBack1?.addEventListener("click", () => {
+    step2.classList.add("hidden");
+    progressBar.style.width = "33%";
+    progressText.textContent = "33%";
+  });
+
+  btnAddSec?.addEventListener("click", () => {
+    if (!sectionTypes.length) sectionTypes = ["Semestral","Parciales","Laboratorios","Tareas","Proyectos","Quices","Portafolio","Asistencia","Otros"];
+    secRows.appendChild(secRow({ label: "Otros", porcentaje: 0, num_notas: 1 }));
+    updateSecSum();
+  });
+
+  btnSaveSec?.addEventListener("click", async () => {
+    const rows = Array.from(secRows.children);
+    const labels = rows.map((r) => r.querySelector(".sec-type").value);
+    const secciones = rows.map((r) => ({
+      porcentaje: parseFloat(r.querySelector(".sec-pct").value || "0") || 0,
+      num_notas: parseInt(r.querySelector(".sec-n").value || "0") || 0,
+    }));
+    const out = await apiPost("/api/wizard/config", { course_key: wizardCourseKey, labels, secciones });
+    if (!out || !out.ok) {
+      alert((out && (out.error || out.message)) || "No se pudo guardar la configuración.");
+      return;
+    }
+    showStep3();
+  });
+
+  objGrade?.addEventListener("change", () => {
+    btnProject.disabled = !objGrade.value;
+  });
+
+  btnBack2?.addEventListener("click", () => {
+    step3.classList.add("hidden");
+    step2.classList.remove("hidden");
+    progressBar.style.width = "33%";
+    progressText.textContent = "33%";
+  });
+
+  btnProject?.addEventListener("click", async () => {
+    if (!wizardCourseKey) return;
+    const out = await apiPost("/api/wizard/proyectar", { course_key: wizardCourseKey, objetivo_grade: objGrade.value });
+    if (!out || !out.ok) {
+      alert((out && (out.error || out.message)) || "No se pudo proyectar.");
+      return;
+    }
+    const r = out.result || {};
+    baselinePct.textContent = `${((r.baseline_prob || 0) * 100).toFixed(1)}%`;
+    plansContainer.innerHTML = "";
+    const plans = (r.highlighted_plans || []).slice(0, 3);
+    plans.forEach((p, i) => {
+      const card = document.createElement("div");
+      card.className = "rounded-2xl border border-white/10 bg-white/5 p-4";
+      card.innerHTML = `
+        <div class="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div class="text-xs text-slate-300">Plan destacado #${i + 1}</div>
+            <div class="text-2xl font-bold text-white">${((p.mc_prob || 0) * 100).toFixed(1)}%</div>
+            <div class="text-xs text-slate-300">Probabilidad de cumplirlo</div>
+          </div>
+          <div class="text-right">
+            <div class="text-xs text-slate-300">Aporte</div>
+            <div class="text-xl font-semibold text-white">+${p.sum_contrib ?? ""}</div>
+          </div>
+        </div>
+        <div class="mt-3 overflow-x-auto">
+          <table class="min-w-full text-sm">
+            <thead class="text-slate-200/80">
+              <tr>
+                <th class="text-left py-2 pr-3">Evaluación</th>
+                <th class="text-left py-2 pr-3">Meta</th>
+                <th class="text-left py-2 pr-3">Prob</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-white/10">
+              ${(p.details || []).map((d) => `
+                <tr>
+                  <td class="py-2 pr-3 text-slate-100">${d.name}</td>
+                  <td class="py-2 pr-3 text-slate-100 font-mono">${d.target}</td>
+                  <td class="py-2 pr-3 text-slate-100 font-mono">${((d.p_tail || 0) * 100).toFixed(1)}%</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+      plansContainer.appendChild(card);
+    });
+    projectOut.classList.remove("hidden");
+    progressBar.style.width = "100%";
+    progressText.textContent = "100%";
+  });
 </script>
 {% endblock %}
 {% endblock %}
