@@ -178,22 +178,33 @@
 <!-- Modal: resumen del plan guardado -->
 <div id="planModal" class="hidden fixed inset-0 z-50">
   <div class="absolute inset-0 bg-slate-950/70"></div>
-  <div class="relative h-full w-full flex items-center justify-center p-6">
-    <div class="w-full max-w-3xl rounded-3xl border border-white/10 bg-slate-950 text-white shadow-2xl overflow-hidden">
-      <div class="p-6 sm:p-8">
+  <!-- Wrapper con scroll: permite subir/bajar en pantallas pequeñas -->
+  <div class="relative h-full w-full overflow-y-auto p-6">
+    <div class="mx-auto my-6 w-full max-w-3xl rounded-3xl border border-white/10 bg-slate-950 text-white shadow-2xl overflow-hidden max-h-[85vh] flex flex-col">
+      <!-- Header fijo -->
+      <div class="p-6 sm:p-8 border-b border-white/10">
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
             <div class="text-xs text-slate-300">Resumen del plan</div>
             <div id="planModalTitle" class="mt-1 text-2xl sm:text-3xl font-semibold tracking-tight truncate">—</div>
             <div id="planModalSubtitle" class="mt-2 text-sm text-slate-200">—</div>
           </div>
-          <button id="planModalClose" type="button"
-                  class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-4 py-2 text-slate-100">
-            Cerrar
-          </button>
+          <div class="flex items-center gap-2">
+            <button id="planModalBack" type="button"
+                    class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-4 py-2 text-slate-100">
+              Volver
+            </button>
+            <button id="planModalClose" type="button"
+                    class="rounded-xl bg-brand-600 hover:bg-brand-500 px-4 py-2 text-white font-semibold">
+              Cerrar
+            </button>
+          </div>
         </div>
+      </div>
 
-        <div class="mt-5 grid gap-3 sm:grid-cols-3">
+      <!-- Body con scroll interno -->
+      <div class="p-6 sm:p-8 flex-1 min-h-0 overflow-y-auto">
+        <div class="grid gap-3 sm:grid-cols-3">
           <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
             <div class="text-xs text-slate-300">Objetivo</div>
             <div class="mt-1 flex items-baseline gap-2">
@@ -236,7 +247,7 @@
           </table>
         </div>
 
-        <div class="mt-6 flex items-center justify-end gap-2">
+        <div class="mt-6 flex flex-col sm:flex-row sm:items-center justify-end gap-2">
           <a href="{{ url_for('web.calcular') }}"
              class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-5 py-2.5 text-slate-100">
             Proyectar otra
@@ -347,6 +358,7 @@
   // --- Modal del plan guardado ---
   const planModal = document.getElementById("planModal");
   const planModalClose = document.getElementById("planModalClose");
+  const planModalBack = document.getElementById("planModalBack");
   const planModalTitle = document.getElementById("planModalTitle");
   const planModalSubtitle = document.getElementById("planModalSubtitle");
   const planRows = document.getElementById("planRows");
@@ -362,6 +374,7 @@
   function openPlanModal() { planModal?.classList.remove("hidden"); }
   function closePlanModal() { planModal?.classList.add("hidden"); }
   planModalClose?.addEventListener("click", closePlanModal);
+  planModalBack?.addEventListener("click", closePlanModal);
   planModal?.addEventListener("click", (e) => { if (e.target === planModal) closePlanModal(); });
 
   document.querySelectorAll("[data-open-plan]").forEach((btn) => {
