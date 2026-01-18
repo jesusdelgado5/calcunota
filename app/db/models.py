@@ -18,9 +18,14 @@ class AppUser(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    # Perfil (opcionales)
+    first_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    last_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     # Nullable para compatibilidad con usuarios demo existentes; en registro real se exige.
     password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, server_default=func.now(), onupdate=func.now())
 
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_token"

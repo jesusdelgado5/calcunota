@@ -109,7 +109,25 @@ def ajustes():
 # ✅ perfil + acciones (los usa el menú Perfil)
 @web_bp.get("/perfil")
 def perfil():
-    return render_template("perfil.html", active="perfil", is_auth=is_auth())
+    user_profile = None
+    if is_auth():
+        pk = _current_user_pk()
+        if pk:
+            db = SessionLocal()
+            try:
+                from app.db.models import AppUser
+                u = db.query(AppUser).filter(AppUser.id == int(pk)).one_or_none()
+                if u:
+                    user_profile = {
+                        "username": getattr(u, "username", None),
+                        "first_name": getattr(u, "first_name", None),
+                        "last_name": getattr(u, "last_name", None),
+                        "email": getattr(u, "email", None),
+                        "created_at": getattr(u, "created_at", None).date().isoformat() if getattr(u, "created_at", None) else None,
+                    }
+            finally:
+                db.close()
+    return render_template("perfil.html", active="perfil", is_auth=is_auth(), user_profile=user_profile)
 
 @web_bp.post("/login")
 def login():
@@ -150,6 +168,44 @@ def change_password_route():
     return redirect(url_for("web.perfil"))
 
 
+@web_bp.post("/perfil/actualizar")
+def profile_update():
+    if not is_auth():
+        flash("Debes iniciar sesión.", "error")
+        return redirect(url_for("web.perfil"))
+    pk = _current_user_pk()
+    if not pk:
+        flash("No se pudo identificar el usuario.", "error")
+        return redirect(url_for("web.perfil"))
+
+    first_name = (request.form.get("first_name") or "").strip() or None
+    last_name = (request.form.get("last_name") or "").strip() or None
+    email = (request.form.get("email") or "").strip() or None
+
+    db = SessionLocal()
+    try:
+        from app.db.models import AppUser
+        u = db.query(AppUser).filter(AppUser.id == int(pk)).one_or_none()
+        if not u:
+            flash("Usuario no encontrado.", "error")
+            return redirect(url_for("web.perfil"))
+        u.first_name = first_name
+        u.last_name = last_name
+        u.email = email
+        db.commit()
+        flash("Perfil actualizado.", "ok")
+        return redirect(url_for("web.perfil"))
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        flash("No se pudo actualizar el perfil.", "error")
+        return redirect(url_for("web.perfil"))
+    finally:
+        db.close()
+
+
 @web_bp.post("/forgot-password")
 def forgot_password():
     token = issue_reset_token(request.form.get("username") or "")
@@ -177,13 +233,16 @@ def reset_password_route():
 def register():
     username = (request.form.get("username") or "").strip()
     password = request.form.get("password") or ""
+    first_name = request.form.get("first_name")
+    last_name = request.form.get("last_name")
+    email = request.form.get("email")
     if len(username) < 3:
         flash("El usuario debe tener al menos 3 caracteres.", "error")
         return redirect(url_for("web.perfil"))
     if len(password) < 6:
         flash("La contraseña debe tener al menos 6 caracteres.", "error")
         return redirect(url_for("web.perfil"))
-    pk = register_user(username, password)
+    pk = register_user(username, password, first_name=first_name, last_name=last_name, email=email)
     if not pk:
         flash("No se pudo registrar (quizás el usuario ya existe).", "error")
         return redirect(url_for("web.perfil"))

@@ -11,7 +11,14 @@ from app.db import SessionLocal
 from app.db.models import AppUser, PasswordResetToken
 
 
-def register_user(username: str, password: str) -> Optional[int]:
+def register_user(
+    username: str,
+    password: str,
+    *,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    email: str | None = None,
+) -> Optional[int]:
     username = (username or "").strip()
     if not username or not password:
         return None
@@ -20,7 +27,13 @@ def register_user(username: str, password: str) -> Optional[int]:
         exists = db.query(AppUser).filter(AppUser.username == username).one_or_none()
         if exists:
             return None
-        row = AppUser(username=username, password_hash=generate_password_hash(password))
+        row = AppUser(
+            username=username,
+            password_hash=generate_password_hash(password),
+            first_name=(first_name or "").strip() or None,
+            last_name=(last_name or "").strip() or None,
+            email=(email or "").strip() or None,
+        )
         db.add(row)
         db.commit()
         db.refresh(row)
