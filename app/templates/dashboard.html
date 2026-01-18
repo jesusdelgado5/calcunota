@@ -194,45 +194,17 @@
                     class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-4 py-2 text-slate-100">
               Volver
             </button>
-            <button id="planModalClose" type="button"
-                    class="rounded-xl bg-brand-600 hover:bg-brand-500 px-4 py-2 text-white font-semibold">
-              Cerrar
-            </button>
           </div>
         </div>
       </div>
 
       <!-- Body con scroll interno -->
       <div class="p-6 sm:p-8 flex-1 min-h-0 overflow-y-auto">
-        <div class="grid gap-3 sm:grid-cols-3">
-          <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div class="text-xs text-slate-300">Objetivo</div>
-            <div class="mt-1 flex items-baseline gap-2">
-              <div id="planObj" class="text-3xl font-extrabold tracking-tight">—</div>
-              <div id="planObjLetter" class="text-sm font-semibold text-slate-300"></div>
-            </div>
-          </div>
-          <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div class="text-xs text-slate-300">Total si cumples el plan</div>
-            <div class="mt-1 flex items-center gap-2">
-              <div id="planTotal" class="text-3xl font-extrabold tracking-tight">—</div>
-              <span id="planTotalLetter" class="inline-flex items-center rounded-full bg-brand-600 text-white px-3 py-1 text-xs font-extrabold tracking-wide">—</span>
-            </div>
-          </div>
-          <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div class="text-xs text-slate-300">Probabilidad de cumplirlo</div>
-            <div class="mt-1 text-3xl font-extrabold tracking-tight" id="planProb">—</div>
-            <div class="mt-2 h-2.5 w-full rounded-full bg-white/10 overflow-hidden">
-              <div id="planProbBar" class="h-full rounded-full bg-gradient-to-r from-brand-600 to-indigo-400 transition-all duration-300" style="width:0%"></div>
-            </div>
-          </div>
-        </div>
-
-        <div id="planModalWarn" class="mt-4 hidden rounded-xl border border-rose-400/30 bg-rose-500/15 text-rose-100 px-4 py-3 text-sm">
+        <div id="planModalWarn" class="mb-4 hidden rounded-xl border border-rose-400/30 bg-rose-500/15 text-rose-100 px-4 py-3 text-sm">
           Este plan ya no alcanza el objetivo con las notas actuales.
         </div>
 
-        <div class="mt-5 overflow-x-auto rounded-2xl border border-white/10 bg-white/5">
+        <div class="overflow-x-auto rounded-2xl border border-white/10 bg-white/5">
           <table class="min-w-full text-sm">
             <thead class="text-slate-200/80">
               <tr>
@@ -245,17 +217,6 @@
               <tr><td class="py-4 px-4 text-slate-200" colspan="3">Cargando…</td></tr>
             </tbody>
           </table>
-        </div>
-
-        <div class="mt-6 flex flex-col sm:flex-row sm:items-center justify-end gap-2">
-          <a href="{{ url_for('web.calcular') }}"
-             class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-5 py-2.5 text-slate-100">
-            Proyectar otra
-          </a>
-          <a id="planEditBtn" href="#"
-             class="rounded-xl bg-brand-600 hover:bg-brand-500 text-white px-5 py-2.5 font-semibold">
-            Editar / actualizar notas
-          </a>
         </div>
       </div>
     </div>
@@ -357,23 +318,14 @@
 
   // --- Modal del plan guardado ---
   const planModal = document.getElementById("planModal");
-  const planModalClose = document.getElementById("planModalClose");
   const planModalBack = document.getElementById("planModalBack");
   const planModalTitle = document.getElementById("planModalTitle");
   const planModalSubtitle = document.getElementById("planModalSubtitle");
   const planRows = document.getElementById("planRows");
-  const planObj = document.getElementById("planObj");
-  const planObjLetter = document.getElementById("planObjLetter");
-  const planTotal = document.getElementById("planTotal");
-  const planTotalLetter = document.getElementById("planTotalLetter");
-  const planProb = document.getElementById("planProb");
-  const planProbBar = document.getElementById("planProbBar");
   const planWarn = document.getElementById("planModalWarn");
-  const planEditBtn = document.getElementById("planEditBtn");
 
   function openPlanModal() { planModal?.classList.remove("hidden"); }
   function closePlanModal() { planModal?.classList.add("hidden"); }
-  planModalClose?.addEventListener("click", closePlanModal);
   planModalBack?.addEventListener("click", closePlanModal);
   planModal?.addEventListener("click", (e) => { if (e.target === planModal) closePlanModal(); });
 
@@ -387,35 +339,15 @@
       planModalSubtitle.textContent = `Termo: ${term}`;
       planRows.innerHTML = `<tr><td class="py-4 px-4 text-slate-200" colspan="3">Cargando…</td></tr>`;
       planWarn.classList.add("hidden");
-      planEditBtn.href = `/materia/${encodeURIComponent(courseKey)}/captura?idx=0`;
 
       openPlanModal();
       const out = await apiPost("/api/course/plan-detail", { course_key: courseKey, term });
       if (!out || !out.ok) {
         planRows.innerHTML = `<tr><td class="py-4 px-4 text-rose-100" colspan="3">${(out && (out.error || out.message)) || "No se pudo cargar el plan."}</td></tr>`;
-        planObj.textContent = "—";
-        planObjLetter.textContent = "";
-        planTotal.textContent = "—";
-        planTotalLetter.textContent = "—";
-        planTotalLetter.className = `inline-flex items-center rounded-full bg-slate-700 text-white px-3 py-1 text-xs font-extrabold tracking-wide`;
-        planProb.textContent = "—";
-        planProbBar.style.width = "0%";
         return;
       }
 
       const plan = out.plan || {};
-      const objetivo = Number(out.objetivo || 0);
-      const total = Number(plan.nota_final_si_cumple || 0);
-      const prob = Number(plan.mc_prob || 0);
-
-      planObj.textContent = objetivo ? objetivo.toFixed(0) : "—";
-      planObjLetter.textContent = objetivo ? `(${gradeLetterFromScore(objetivo)})` : "";
-      planTotal.textContent = total ? total.toFixed(2) : "—";
-      const ltr = gradeLetterFromScore(total);
-      planTotalLetter.textContent = ltr || "—";
-      planTotalLetter.className = `inline-flex items-center rounded-full ${badgeClass(ltr)} text-white px-3 py-1 text-xs font-extrabold tracking-wide`;
-      planProb.textContent = `${(prob * 100).toFixed(1)}%`;
-      planProbBar.style.width = `${Math.max(0, Math.min(100, prob * 100))}%`;
       if (plan.llega_objetivo === false) planWarn.classList.remove("hidden");
 
       const rows = (plan.details || []).map((d) => {
