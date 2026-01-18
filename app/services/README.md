@@ -20,7 +20,7 @@ Servicios **puros** (sin dependencia de Flask) para reutilizar en otros frontend
 **Por qué**: se concentra el cálculo determinista de “dónde estoy” y “qué necesito”, reutilizable desde la UI o la API.
 
 
-### 2) `optimizer_beam.py` (Manual)
+### 2) `optimizer_beam.py` (Manual / legado)
 - Convierte secciones en **evaluaciones pendientes** (`build_evals_from_secciones`), asigna **μ/σ** (shrink con priors opcionales) y define un **grid** `[min..100]`.
 - **Beam Search** con probas de cola Normal (con SciPy si está) y **Monte Carlo** para baseline y verificación.
 - La vista `planes_beam.html` permite **editar μ/σ y grid** antes de optimizar.
@@ -31,10 +31,10 @@ Servicios **puros** (sin dependencia de Flask) para reutilizar en otros frontend
   - `mc_prob` (estimación empírica),
   - `details` por evaluación (peso, μ/σ, `P(Y≥s)`).
 
-**Cuándo**: cuando el usuario quiere **tocar los hiperparámetros** y revisar supuestos.
+**Nota**: la UI principal ya no lo expone; se mantiene como utilidad/legado.
 
 
-### 3) `optimizer_beam_auto.py` (Automático)
+### 3) `optimizer_beam_auto.py` (Proyectar materia)
 - Estima **μ/σ** por alumno con **shrinkage** hacia priors (`priors.get_eval_prior`).
 - Usa **Beta(α,β)** (0..100) con calibración por sección (`calibration.get_calibrator`).
 - **Grids adaptativos** por μ/σ (más amplios en finales).

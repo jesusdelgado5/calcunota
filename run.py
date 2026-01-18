@@ -1,14 +1,13 @@
-# app.py
-from flask import Flask
-from app.db import SessionLocal
+"""
+Entry-point alternativo para desarrollo.
 
-app = Flask(__name__)  # 1) crear la app primero
+Preferido: `python wsgi.py` (más explícito), pero este archivo también debe funcionar.
+"""
 
-@app.teardown_appcontext
-def remove_session(exc=None):
-    # 2) ahora sí, usar el decorador
-    SessionLocal.remove()
+from app import create_app
+
+app = create_app()
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, host="127.0.0.1", port=5000)
 

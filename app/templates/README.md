@@ -33,16 +33,13 @@ Plantillas orientadas a un **flujo guiado** y a resultados legibles.
 6. `resultado.html`  
    - Muestra: **Nota actual**, **Porcentaje restante**, **Promedio necesario (restante)**.  
    - Mensaje contextual: alcanzado, inalcanzable o guía.  
-   - Enlaces a **Planes** (manual y auto) y JSON crudo.
+   - Enlace a **Proyectar materia** y JSON crudo.
 
-## Planes
-- `planes_beam.html` (manual)  
-  Muestra y permite **editar** μ/σ y grids por evaluación antes de optimizar.  
-  Resultados con **Prob. MC**, **aportes** y tabla de metas por evaluación.
-
-- `planes_beam_auto.html` (automático)  
+## Proyección
+- `planes_beam_auto.html` (Proyectar materia)  
   Solo pide el **objetivo**.  
-  Muestra baseline, **top planes** con etiquetas y detalles (`P(Y≥s)` por sección).
+  Muestra planes destacados y permite **editar metas** (+/−) con recálculo en vivo:
+  probabilidad, dificultad y validación de si llega al objetivo.
 
 ## Otras
 - `dashboard.html`, `ajustes.html`, `perfil.html`  

@@ -32,7 +32,7 @@
 ## Orden de escritura/lectura
 
 - Al **capturar notas**: `ObservedEvalScore` (nuevo registro por nota).  
-- Al **mostrar planes-auto**: `EvalThresholdPrediction` (una fila por meta sección).  
+- Al **mostrar Proyectar materia**: `EvalThresholdPrediction` (una fila por meta sección).  
 - Al **recibir nueva nota**: se resuelven predicciones pendientes (`hit = score >= target`).
 
 ## Drivers y URLs

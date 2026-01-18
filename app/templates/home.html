@@ -1,19 +1,78 @@
 {% extends "base.html" %} {% block title %}Home — CalcuNota{% endblock %} {%
 block content %}
-<section class="grid place-items-center py-16">
-  <div class="text-center max-w-2xl">
-    <h1 class="text-3xl font-bold text-slate-900">Bienvenido a CalcuNota</h1>
-    <p class="mt-2 text-slate-600">
-      Calcula tu nota actual, fija un objetivo y genera planes con
-      probabilidades realistas.
-    </p>
-    <div class="mt-6">
-      <a
-        href="{{ url_for('web.calcular') }}"
-        class="inline-flex items-center gap-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-5 py-2.5"
+<section
+  class="relative overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 text-white"
+>
+  <!-- Fondo con más contraste -->
+  <div aria-hidden="true" class="absolute inset-0">
+    <div
+      class="absolute inset-0 bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900"
+    ></div>
+    <div
+      class="absolute -top-40 left-1/2 h-96 w-[58rem] -translate-x-1/2 rounded-full bg-gradient-to-r from-brand-600/40 via-indigo-500/20 to-brand-600/40 blur-3xl"
+    ></div>
+    <div
+      class="absolute -bottom-56 right-[-8rem] h-[28rem] w-[28rem] rounded-full bg-indigo-500/20 blur-3xl"
+    ></div>
+    <div
+      class="absolute inset-0 opacity-[0.08]"
+      style="background-image: radial-gradient(circle at 1px 1px, #fff 1px, transparent 0); background-size: 22px 22px;"
+    ></div>
+  </div>
+
+  <div class="relative px-6 py-14 sm:px-10 sm:py-20">
+    <div class="mx-auto max-w-3xl text-center">
+      <span
+        class="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-slate-100 shadow-sm"
       >
-        Comenzar
-      </a>
+        Proyección de calificaciones · Probabilidades realistas
+      </span>
+
+      <h1 class="mt-5 text-4xl sm:text-5xl font-semibold tracking-tight">
+        Planifica tu nota final con claridad.
+      </h1>
+      <p class="mt-4 text-base sm:text-lg leading-relaxed text-slate-200">
+        Calcula tu nota actual, define tu objetivo y ajusta un plan en tiempo
+        real para ver cómo cambian tus probabilidades.
+      </p>
+
+      <div class="mt-8 flex flex-col items-center gap-3">
+        <a
+          href="{{ url_for('web.calcular') }}"
+          class="group inline-flex items-center justify-center rounded-xl bg-brand-600 px-9 py-3 text-base font-semibold text-white shadow-xl shadow-brand-600/30 hover:bg-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/30"
+        >
+          <span>Comenzar</span>
+          <span
+            class="ml-2 inline-block transition-transform group-hover:translate-x-0.5"
+            aria-hidden="true"
+            >→</span
+          >
+        </a>
+        <div class="text-sm text-slate-300">
+          En menos de 1 minuto: configura secciones, registra notas y proyecta.
+        </div>
+      </div>
+
+      <div class="mt-10 grid gap-3 sm:grid-cols-3 text-left">
+        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div class="text-sm font-semibold text-white">Rápido</div>
+          <div class="mt-1 text-sm text-slate-200">
+            Define secciones y captura tus notas sin fricción.
+          </div>
+        </div>
+        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div class="text-sm font-semibold text-white">Realista</div>
+          <div class="mt-1 text-sm text-slate-200">
+            Probabilidades por tipo de evaluación y materia.
+          </div>
+        </div>
+        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div class="text-sm font-semibold text-white">Interactivo</div>
+          <div class="mt-1 text-sm text-slate-200">
+            Ajusta metas y observa cómo cambian tus chances al instante.
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </section>

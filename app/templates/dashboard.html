@@ -1,17 +1,368 @@
 {% extends "base.html" %} {% block title %}Dashboard — CalcuNota{% endblock %}
 {% block content %}
-<div class="max-w-4xl">
-  <h1 class="text-xl font-semibold text-slate-900">Tu Dashboard</h1>
-  <p class="text-slate-600 mt-1">
-    Materias y cálculos recientes (placeholder).
-  </p>
-  <ul class="mt-3 space-y-2">
-    <li class="rounded-xl border border-slate-200 bg-white px-3 py-2">
-      — Materia 1 (ejemplo)
-    </li>
-    <li class="rounded-xl border border-slate-200 bg-white px-3 py-2">
-      — Materia 2 (ejemplo)
-    </li>
-  </ul>
+<div class="flex justify-center">
+  <section class="w-full max-w-5xl">
+    <div class="rounded-3xl border border-slate-200 bg-slate-950 text-white overflow-hidden">
+      <div class="px-6 py-6 sm:px-10 sm:py-8">
+        <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+          <div>
+            <div class="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-slate-100">
+              Dashboard
+            </div>
+            <h1 class="mt-3 text-2xl sm:text-3xl font-semibold tracking-tight">Tus materias</h1>
+            <p class="mt-2 text-sm sm:text-base text-slate-200">
+              Revisa tus notas, tu objetivo y la probabilidad de alcanzarlo.
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            <a href="{{ url_for('web.calcular') }}"
+               class="rounded-xl bg-brand-600 hover:bg-brand-500 text-white px-5 py-2.5 font-semibold shadow-xl shadow-brand-600/25 focus:outline-none focus:ring-4 focus:ring-brand-500/30">
+              + Nueva materia
+            </a>
+            <a href="{{ url_for('web.perfil') }}"
+               class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-5 py-2.5 text-slate-100">
+              Perfil
+            </a>
+          </div>
+        </div>
+
+        {% if not is_auth %}
+          <div class="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div class="text-slate-100 font-semibold">Inicia sesión para guardar tu progreso</div>
+            <p class="mt-1 text-sm text-slate-200">
+              Así podrás retomar tus materias, ver tus notas y guardar planes.
+            </p>
+            <a href="{{ url_for('web.perfil') }}"
+               class="inline-flex mt-4 rounded-xl bg-brand-600 hover:bg-brand-500 text-white px-5 py-2.5 font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/30">
+              Ir a perfil
+            </a>
+          </div>
+        {% else %}
+          {% if course_details and course_details|length>0 %}
+            <div class="mt-6 grid gap-4">
+              {% for c in course_details %}
+                {% set cid = c.course_key ~ '::' ~ c.term %}
+                {% set pct_done = (100.0 * (c.filled_slots or 0) / (c.total_slots or 1)) %}
+                <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                    <div class="min-w-0">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <div class="text-lg sm:text-xl font-semibold tracking-tight text-white truncate">
+                          {{ c.course_name }}
+                        </div>
+                        <span class="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-2.5 py-0.5 text-xs font-semibold text-slate-100">
+                          {{ c.term }}
+                        </span>
+                        {% if c.has_saved_plan %}
+                          <span class="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-100">
+                            Plan guardado
+                          </span>
+                        {% endif %}
+                      </div>
+
+                      <div class="mt-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                        <div class="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3">
+                          <div class="text-xs text-slate-300">Objetivo</div>
+                          <div class="mt-1 flex items-baseline gap-2">
+                            <div class="text-3xl font-extrabold tracking-tight text-white" data-obj>{{ '%.0f'|format(c.objetivo) if c.objetivo is not none else '—' }}</div>
+                            <div class="text-sm font-semibold text-slate-300" data-obj-letter></div>
+                          </div>
+                        </div>
+                        <div class="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3">
+                          <div class="text-xs text-slate-300">Probabilidad de lograrlo</div>
+                          <div class="mt-1 flex items-center gap-2">
+                            <div class="text-3xl font-extrabold tracking-tight text-white" data-prob>—</div>
+                            <div class="text-sm text-slate-300" data-prob-msg></div>
+                          </div>
+                          <div class="mt-2 h-2.5 w-full rounded-full bg-white/10 overflow-hidden">
+                            <div class="h-full rounded-full bg-gradient-to-r from-brand-600 to-indigo-400 transition-all duration-300" style="width: 0%" data-prob-bar></div>
+                          </div>
+                        </div>
+                        <div class="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3">
+                          <div class="text-xs text-slate-300">Notas ingresadas</div>
+                          <div class="mt-1 text-3xl font-extrabold tracking-tight text-white">
+                            {{ c.filled_slots }}<span class="text-slate-400 text-base font-semibold">/{{ c.total_slots }}</span>
+                          </div>
+                          <div class="mt-2 h-2.5 w-full rounded-full bg-white/10 overflow-hidden">
+                            <div class="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-300 transition-all duration-300" style="width: {{ '%.0f'|format(pct_done) }}%"></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row gap-2">
+                      <a href="{{ url_for('web.captura_secciones', nombre=c.course_key, idx=0) }}"
+                         class="rounded-xl bg-brand-600 hover:bg-brand-500 text-white px-5 py-2.5 font-semibold text-center">
+                        Editar / actualizar notas
+                      </a>
+                      <button type="button"
+                              class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-5 py-2.5 text-slate-100 text-center"
+                              data-open-plan
+                              data-course-key="{{ c.course_key }}"
+                              data-course-name="{{ c.course_name|e }}"
+                              data-term="{{ c.term }}">
+                        Ver resumen
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Notas por sección (expandible) -->
+                  <details class="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+                    <summary class="cursor-pointer select-none text-sm font-semibold text-slate-100">
+                      Ver todas las notas ingresadas
+                      <span class="text-slate-300 font-medium">(score/base)</span>
+                    </summary>
+                    <div class="mt-4 overflow-x-auto">
+                      <table class="min-w-full text-sm">
+                        <thead class="text-slate-200/80">
+                          <tr>
+                            <th class="text-left py-2 pr-3">Sección</th>
+                            <th class="text-right py-2 pr-3">%</th>
+                            <th class="text-right py-2 pr-3">#</th>
+                            <th class="text-left py-2 pr-3">Notas</th>
+                          </tr>
+                        </thead>
+                        <tbody class="divide-y divide-white/10">
+                          {% set labels = c.labels|default([]) %}
+                          {% set secciones = c.secciones|default([]) %}
+                          {% for i in range(labels|length) %}
+                            {% set lbl = labels[i] %}
+                            {% set s = secciones[i] if i < (secciones|length) else {} %}
+                            {% set notas = s.notas_obtenidas or [] %}
+                            <tr>
+                              <td class="py-2 pr-3 text-slate-100">{{ lbl }}</td>
+                              <td class="py-2 pr-3 text-slate-100 font-mono text-right">{{ '%.1f'|format((s.porcentaje or 0)*100) }}%</td>
+                              <td class="py-2 pr-3 text-slate-100 font-mono text-right">{{ s.num_notas or 0 }}</td>
+                              <td class="py-2 pr-3 text-slate-100 font-mono">
+                                {% if notas and notas|length>0 %}
+                                  {% for n in notas %}
+                                    {% if n is mapping %}
+                                      {{ (n.score|float)|round(2) }}/{{ ((n.base is defined and n.base)|default(100)|float)|round(2) }}{% if not loop.last %}, {% endif %}
+                                    {% else %}
+                                      {{ n|round(2) }}/100{% if not loop.last %}, {% endif %}
+                                    {% endif %}
+                                  {% endfor %}
+                                {% else %}
+                                  —
+                                {% endif %}
+                              </td>
+                            </tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+
+                  <div class="mt-3 text-xs text-slate-300" data-course-meta
+                       data-course-key="{{ c.course_key }}"
+                       data-term="{{ c.term }}"
+                       data-objetivo="{{ c.objetivo if c.objetivo is not none else '' }}">
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+              <p class="text-sm text-slate-200">
+                Aún no tienes materias guardadas. Crea una desde
+                <a class="text-white font-semibold hover:underline" href="{{ url_for('web.calcular') }}">Calcular</a>.
+              </p>
+            </div>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </section>
 </div>
+
+<!-- Modal: resumen del plan guardado -->
+<div id="planModal" class="hidden fixed inset-0 z-50">
+  <div class="absolute inset-0 bg-slate-950/70"></div>
+  <!-- Wrapper con scroll: permite subir/bajar en pantallas pequeñas -->
+  <div class="relative h-full w-full overflow-y-auto p-6">
+    <div class="mx-auto my-6 w-full max-w-3xl rounded-3xl border border-white/10 bg-slate-950 text-white shadow-2xl overflow-hidden max-h-[85vh] flex flex-col">
+      <!-- Header fijo -->
+      <div class="p-6 sm:p-8 border-b border-white/10">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div class="text-xs text-slate-300">Resumen del plan</div>
+            <div id="planModalTitle" class="mt-1 text-2xl sm:text-3xl font-semibold tracking-tight truncate">—</div>
+            <div id="planModalSubtitle" class="mt-2 text-sm text-slate-200">—</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="planModalBack" type="button"
+                    class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-4 py-2 text-slate-100">
+              Volver
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Body con scroll interno -->
+      <div class="p-6 sm:p-8 flex-1 min-h-0 overflow-y-auto">
+        <div id="planModalWarn" class="mb-4 hidden rounded-xl border border-rose-400/30 bg-rose-500/15 text-rose-100 px-4 py-3 text-sm">
+          Este plan ya no alcanza el objetivo con las notas actuales.
+        </div>
+
+        <div class="overflow-x-auto rounded-2xl border border-white/10 bg-white/5">
+          <table class="min-w-full text-sm">
+            <thead class="text-slate-200/80">
+              <tr>
+                <th class="text-left py-3 px-4">Evaluación pendiente</th>
+                <th class="text-right py-3 px-4">Meta</th>
+                <th class="text-right py-3 px-4">Prob</th>
+              </tr>
+            </thead>
+            <tbody id="planRows" class="divide-y divide-white/10">
+              <tr><td class="py-4 px-4 text-slate-200" colspan="3">Cargando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% block body_extra %}
+<script>
+  async function apiPost(url, body) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return await res.json();
+  }
+
+  function letterFromScore(x) {
+    const n = Number(x);
+    if (!Number.isFinite(n)) return "";
+    if (n >= 91) return "A";
+    if (n >= 81) return "B";
+    if (n >= 71) return "C";
+    if (n >= 61) return "D";
+    return "F";
+  }
+
+  function fmtPct(p) {
+    if (p === null || p === undefined) return "—";
+    const n = Number(p);
+    if (!Number.isFinite(n)) return "—";
+    return `${(n * 100).toFixed(1)}%`;
+  }
+
+  function setBar(el, p) {
+    if (!el) return;
+    const n = Number(p);
+    const w = Number.isFinite(n) ? Math.max(0, Math.min(100, n * 100)) : 0;
+    el.style.width = `${w}%`;
+  }
+
+  function gradeLetterFromScore(s) {
+    const x = Number(s);
+    if (!Number.isFinite(x)) return "";
+    if (x >= 91) return "A";
+    if (x >= 81) return "B";
+    if (x >= 71) return "C";
+    if (x >= 61) return "D";
+    return "F";
+  }
+
+  function badgeClass(letter) {
+    if (letter === "A") return "bg-emerald-600";
+    if (letter === "B") return "bg-brand-600";
+    if (letter === "C") return "bg-amber-500";
+    if (letter === "D") return "bg-orange-500";
+    return "bg-rose-600";
+  }
+
+  document.querySelectorAll("[data-course-meta]").forEach(async (metaEl) => {
+    const courseKey = metaEl.dataset.courseKey;
+    const term = metaEl.dataset.term;
+    const objetivo = metaEl.dataset.objetivo;
+    const card = metaEl.closest(".rounded-2xl");
+    if (!card) return;
+    const objEl = card.querySelector("[data-obj]");
+    const objLetterEl = card.querySelector("[data-obj-letter]");
+    const probEl = card.querySelector("[data-prob]");
+    const probMsgEl = card.querySelector("[data-prob-msg]");
+    const probBar = card.querySelector("[data-prob-bar]");
+
+    if (objLetterEl && objetivo) {
+      objLetterEl.textContent = `(${letterFromScore(objetivo)})`;
+    }
+
+    // si no hay objetivo, no calculamos prob
+    if (!objetivo) {
+      if (probEl) probEl.textContent = "—";
+      if (probMsgEl) probMsgEl.textContent = "Define un objetivo para ver probabilidad.";
+      setBar(probBar, 0);
+      return;
+    }
+
+    if (probEl) probEl.textContent = "…";
+    const out = await apiPost("/api/course/prob", { course_key: courseKey, term });
+    if (!out || !out.ok) {
+      if (probEl) probEl.textContent = "—";
+      if (probMsgEl) probMsgEl.textContent = (out && (out.error || out.message)) || "No se pudo calcular.";
+      setBar(probBar, 0);
+      return;
+    }
+    if (probEl) probEl.textContent = fmtPct(out.baseline_prob);
+    if (probMsgEl) {
+      const na = (out.nota_actual !== null && out.nota_actual !== undefined) ? `Nota actual: ${Number(out.nota_actual).toFixed(2)}` : "";
+      probMsgEl.textContent = out.message ? out.message : na;
+    }
+    setBar(probBar, out.baseline_prob || 0);
+  });
+
+  // --- Modal del plan guardado ---
+  const planModal = document.getElementById("planModal");
+  const planModalBack = document.getElementById("planModalBack");
+  const planModalTitle = document.getElementById("planModalTitle");
+  const planModalSubtitle = document.getElementById("planModalSubtitle");
+  const planRows = document.getElementById("planRows");
+  const planWarn = document.getElementById("planModalWarn");
+
+  function openPlanModal() { planModal?.classList.remove("hidden"); }
+  function closePlanModal() { planModal?.classList.add("hidden"); }
+  planModalBack?.addEventListener("click", closePlanModal);
+  planModal?.addEventListener("click", (e) => { if (e.target === planModal) closePlanModal(); });
+
+  document.querySelectorAll("[data-open-plan]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const courseKey = btn.dataset.courseKey;
+      const courseName = btn.dataset.courseName || courseKey;
+      const term = btn.dataset.term || "default";
+
+      planModalTitle.textContent = courseName;
+      planModalSubtitle.textContent = `Termo: ${term}`;
+      planRows.innerHTML = `<tr><td class="py-4 px-4 text-slate-200" colspan="3">Cargando…</td></tr>`;
+      planWarn.classList.add("hidden");
+
+      openPlanModal();
+      const out = await apiPost("/api/course/plan-detail", { course_key: courseKey, term });
+      if (!out || !out.ok) {
+        planRows.innerHTML = `<tr><td class="py-4 px-4 text-rose-100" colspan="3">${(out && (out.error || out.message)) || "No se pudo cargar el plan."}</td></tr>`;
+        return;
+      }
+
+      const plan = out.plan || {};
+      if (plan.llega_objetivo === false) planWarn.classList.remove("hidden");
+
+      const rows = (plan.details || []).map((d) => {
+        const pt = Number(d.p_tail || 0);
+        return `
+          <tr>
+            <td class="py-3 px-4 text-slate-100">${d.name}</td>
+            <td class="py-3 px-4 text-right text-slate-100 font-mono">${d.target}</td>
+            <td class="py-3 px-4 text-right text-slate-100 font-mono">${(pt * 100).toFixed(1)}%</td>
+          </tr>
+        `;
+      }).join("");
+      planRows.innerHTML = rows || `<tr><td class="py-4 px-4 text-slate-200" colspan="3">No hay evaluaciones pendientes.</td></tr>`;
+    });
+  });
+</script>
+{% endblock %}
 {% endblock %}

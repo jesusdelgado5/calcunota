@@ -44,7 +44,7 @@ Contiene la **web app**: factory de Flask, rutas (UI), API JSON, plantillas y se
 5. Usuario captura notas por sección → `captura_secciones[_post]`.
    - Aquí, **solo notas nuevas** se loggean en DB como `ObservedEvalScore`.
 6. Usuario revisa `resumen` y calcula → `materia_calcular` → `resultado`.
-7. Opcional: generar `planes` (manual) u `planes-auto` (automático).
+7. Opcional: **Proyectar materia** (una sola opción de planes).
    - En automático, se persisten predicciones (`EvalThresholdPrediction`) para auditoría.
 
 ## Motivación (por qué así)

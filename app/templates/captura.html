@@ -14,6 +14,7 @@
 
   <form id="form-captura" method="post" action="{{ url_for('web.captura_secciones_post', nombre=nombre) }}" class="grid gap-4">
     <input type="hidden" name="idx" value="{{ idx }}">
+    {% set is_last = (idx == (secciones|length - 1)) %}
 
     <div class="rounded-xl border border-slate-200 bg-white p-4">
       <div class="grid sm:grid-cols-12 gap-3">
@@ -62,7 +63,21 @@
         <div id="popup-body" class="max-h-[50vh] overflow-auto grid gap-2"></div>
         <div class="flex items-center justify-end gap-2 mt-3">
           <button type="button" id="cancel-popup" class="rounded-lg border border-slate-300 px-3 py-2 hover:bg-slate-50">Cancelar</button>
-          <button type="button" id="confirm-popup" class="rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-4 py-2" disabled>Confirmar</button>
+          <button type="submit" id="save-popup" name="action" value="guardar"
+                  class="rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-4 py-2" disabled>
+            Guardar
+          </button>
+          {% if not is_last %}
+          <button type="submit" id="next-popup" name="action" value="popup_siguiente"
+                  class="rounded-lg border border-slate-300 px-3 py-2 hover:bg-slate-50" disabled>
+            Siguiente
+          </button>
+          {% else %}
+          <button type="submit" id="review-popup" name="action" value="popup_revisar"
+                  class="rounded-lg border border-slate-300 px-3 py-2 hover:bg-slate-50" disabled>
+            Revisar notas
+          </button>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -105,12 +120,14 @@
   const btnNotas = document.getElementById('btn-notas');
   const popup = document.getElementById('popup');
   const body = document.getElementById('popup-body');
-  const confirmBtn = document.getElementById('confirm-popup');
+  const saveBtn = document.getElementById('save-popup');
+  const nextBtn = document.getElementById('next-popup');
+  const reviewBtn = document.getElementById('review-popup');
   const cancelBtn = document.getElementById('cancel-popup');
 
   function openPopup(){
     const total = parseInt(form.total.value || '0', 10);
-    const prev = {{ secciones[idx].notas_obtenidas|tojson }};
+    const prev = {{ (draft_notes if draft_notes is defined else secciones[idx].notas_obtenidas)|tojson }};
 
     body.innerHTML = '';
 
@@ -214,15 +231,29 @@
       const bs = p.querySelector('input[name="notas_base[]"]');
       const scv = (sc.value || '').trim();
       const bsv = parseFloat(bs.value || '100');
-      if (scv === '' || isNaN(bsv) || bsv <= 0) ok = false;
+      const scn = parseFloat(scv || '0');
+      let rowOk = true;
+      if (scv === '' || isNaN(bsv) || bsv <= 0 || isNaN(scn) || scn < 0) rowOk = false;
+      if (rowOk && scn > bsv) rowOk = false;
+      if (!rowOk) ok = false;
+
+      // feedback visual
+      sc.classList.toggle('border-rose-400', !rowOk);
+      bs.classList.toggle('border-rose-400', !rowOk);
     });
-    confirmBtn.disabled = !ok;
+    if (saveBtn) saveBtn.disabled = !ok;
+    if (nextBtn) nextBtn.disabled = !ok;
+    if (reviewBtn) reviewBtn.disabled = !ok;
   }
 
   btnNotas?.addEventListener('click', openPopup);
   cancelBtn?.addEventListener('click', closePopup);
   body.addEventListener('input', validate);
-  confirmBtn.addEventListener('click', closePopup);
+
+  // Abrir automáticamente si venimos de un error de validación
+  {% if open_popup %}
+  openPopup();
+  {% endif %}
 </script>
 {% endblock %}
 {% endblock %}

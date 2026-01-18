@@ -76,13 +76,11 @@ Render: `templates/configurar_materia.html`.
    * `nota_necesaria_promedio_restante` (si se dio objetivo)
      Render: `templates/resultado.html`.
 
-7. **Planes** (opcional)
+7. **Proyectar materia** (opcional)
 
-   * **Manual**: `/materia/<nombre>/planes` (permite ajustar μ/σ y grids)
-     `services/optimizer_beam` con Beam + MC (Normal).
-   * **Automático**: `/materia/<nombre>/planes-auto` (sin hiperparámetros)
-     `services/optimizer_beam_auto` (Beta + calibración + cópula).
-     En ambos, se muestran combinaciones de metas por sección, su **aporte** y **probabilidades**.
+   * Ruta única: `/materia/<nombre>/proyectar`
+     `services/optimizer_beam_auto` (Beta + calibración + cópula) + UI interactiva para ajustar metas.
+     Se muestran combinaciones de metas por sección, su **aporte** y **probabilidades**.
 
 ### 2.2 Flujos alternativos
 
@@ -99,7 +97,7 @@ Render: `templates/configurar_materia.html`.
 
 * **Edición iterativa de notas**: desde `resumen.html` se puede saltar a `captura` para ajustar, repitiendo cálculo.
 
-* **Optimización automática** con registro de predicciones: al generar planes auto se registran umbrales y `p_pred` en `eval_threshold_prediction` para evaluar “hit” luego.
+* **Proyección** con registro de predicciones: al generar planes se registran umbrales y `p_pred` en `eval_threshold_prediction` para evaluar “hit” luego.
 
 ### 2.3 Excepciones y mensajes esperados
 
@@ -109,7 +107,7 @@ Render: `templates/configurar_materia.html`.
 * **Objetivo inalcanzable**:
 
   * En `resultado.html`: mensaje de “inalcanzable” si el promedio requerido > 100.
-  * En planes-auto: `"Objetivo inalcanzable aún con máximos teóricos."`.
+* En proyección: `"Objetivo inalcanzable aún con máximos teóricos."`.
 
 * **Sesión inconsistente** (no hay `materia_actual` o slug distinto):
   Redirección a `/calcular` con `flash("No hay materia en progreso.", "error")`.
@@ -190,8 +188,7 @@ python wsgi.py
 | `/materia/<nombre>/captura`     | GET/POST | Notas                  | `captura.html`            |
 | `/materia/<nombre>/resumen`     | GET      | Resumen                | `resumen.html`            |
 | `/materia/<nombre>/calcular`    | POST     | Resultado              | `resultado.html`          |
-| `/materia/<nombre>/planes`      | GET/POST | Planes (manual)        | `planes_beam.html`        |
-| `/materia/<nombre>/planes-auto` | GET/POST | Planes (auto)          | `planes_beam_auto.html`   |
+| `/materia/<nombre>/proyectar`   | GET/POST | Proyectar materia      | `planes_beam_auto.html`   |
 | `/api/calc`                     | POST     | API JSON               | JSON                      |
 
 
