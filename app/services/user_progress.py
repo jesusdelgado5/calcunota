@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import and_
+from sqlalchemy import MetaData, Table, and_, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db import SessionLocal
-from app.db.models import AppUser, UserCourse, UserCourseSection, UserCourseNote
+from app.db.models import UserCourse, UserCourseSection, UserCourseNote
 from app.services.grades import normalize_nota
 
 
@@ -27,14 +27,14 @@ def ensure_user(username: str) -> Optional[int]:
     """Crea el usuario si no existe; devuelve app_user.id."""
     db = SessionLocal()
     try:
-        row = db.query(AppUser).filter(AppUser.username == username).one_or_none()
-        if row:
-            return int(row.id)
-        row = AppUser(username=username)
-        db.add(row)
+        md = MetaData()
+        t = Table("app_user", md, autoload_with=db.bind)
+        row_id = db.execute(select(t.c.id).where(t.c.username == username)).scalar_one_or_none()
+        if row_id:
+            return int(row_id)
+        db.execute(t.insert().values(username=str(username)))
         db.commit()
-        db.refresh(row)
-        return int(row.id)
+        return int(db.execute(select(t.c.id).where(t.c.username == username)).scalar_one())
     except SQLAlchemyError:
         try:
             db.rollback()

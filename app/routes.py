@@ -115,15 +115,27 @@ def perfil():
         if pk:
             db = SessionLocal()
             try:
-                from app.db.models import AppUser
-                u = db.query(AppUser).filter(AppUser.id == int(pk)).one_or_none()
-                if u:
+                from sqlalchemy import MetaData, Table, select
+                md = MetaData()
+                t = Table("app_user", md, autoload_with=db.bind)
+                cols = [t.c.id, t.c.username, t.c.created_at]
+                if "first_name" in t.c:
+                    cols.append(t.c.first_name)
+                if "last_name" in t.c:
+                    cols.append(t.c.last_name)
+                if "email" in t.c:
+                    cols.append(t.c.email)
+                if "updated_at" in t.c:
+                    cols.append(t.c.updated_at)
+                row = db.execute(select(*cols).where(t.c.id == int(pk))).mappings().first()
+                if row:
+                    created_at = row.get("created_at")
                     user_profile = {
-                        "username": getattr(u, "username", None),
-                        "first_name": getattr(u, "first_name", None),
-                        "last_name": getattr(u, "last_name", None),
-                        "email": getattr(u, "email", None),
-                        "created_at": getattr(u, "created_at", None).date().isoformat() if getattr(u, "created_at", None) else None,
+                        "username": row.get("username"),
+                        "first_name": row.get("first_name"),
+                        "last_name": row.get("last_name"),
+                        "email": row.get("email"),
+                        "created_at": created_at.date().isoformat() if created_at else None,
                     }
             finally:
                 db.close()
@@ -184,14 +196,19 @@ def profile_update():
 
     db = SessionLocal()
     try:
-        from app.db.models import AppUser
-        u = db.query(AppUser).filter(AppUser.id == int(pk)).one_or_none()
-        if not u:
-            flash("Usuario no encontrado.", "error")
+        from sqlalchemy import MetaData, Table, update
+        md = MetaData()
+        t = Table("app_user", md, autoload_with=db.bind)
+        # Si la DB aún no tiene estas columnas, evitamos crash y damos feedback.
+        missing = [c for c in ("first_name", "last_name", "email") if c not in t.c]
+        if missing:
+            flash("Tu base de datos aún no tiene campos de perfil. Ejecuta migraciones (alembic upgrade head).", "error")
             return redirect(url_for("web.perfil"))
-        u.first_name = first_name
-        u.last_name = last_name
-        u.email = email
+        db.execute(
+            update(t)
+            .where(t.c.id == int(pk))
+            .values(first_name=first_name, last_name=last_name, email=email)
+        )
         db.commit()
         flash("Perfil actualizado.", "ok")
         return redirect(url_for("web.perfil"))

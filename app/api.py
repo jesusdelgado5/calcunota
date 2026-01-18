@@ -11,7 +11,7 @@ from app.services.sections import SECTION_TYPES, normalize_section_label
 from app.services.user_progress import upsert_course_config, set_course_objetivo
 from app.services.grades import resumen_desde_secciones, calcular_nota_actual
 from app.services.goal_grades import grade_to_objective
-from app.services.optimizer_beam_auto import optimize_auto_backend, baseline_prob_only
+from app.services.optimizer_beam_auto import optimize_auto_backend, baseline_prob_only, evaluate_plan_auto
 from app.services.observations import log_observed_score
 from app.services.predictions import resolve_predictions_with_new_score
 from app.services.grades import normalize_nota
@@ -415,6 +415,79 @@ def course_prob():
             "message": out.get("message"),
             "nota_actual": float(round(nota_actual, 2)),
             "objetivo": float(objetivo),
+        }
+    )
+
+
+@api_bp.post("/course/plan-detail")
+def course_plan_detail():
+    """
+    Devuelve el plan guardado evaluado (detalle por evaluación) para mostrar en Dashboard.
+    JSON: { course_key, term? }
+    """
+    user_pk = session.get("user_pk")
+    if not user_pk:
+        return jsonify({"ok": False, "error": "Debes iniciar sesión."}), 401
+
+    payload = request.get_json(force=True, silent=True) or {}
+    course_key = str(payload.get("course_key") or "").strip()
+    term = payload.get("term")
+    term = str(term).strip() if term is not None else "default"
+    if not course_key:
+        return jsonify({"ok": False, "error": "Falta course_key."}), 400
+
+    from app.services.user_progress import load_course_state, load_course_saved_plan
+    st = load_course_state(user_id=int(user_pk), course_key=course_key, term=term)
+    if not st:
+        return jsonify({"ok": False, "error": "Materia no encontrada."}), 404
+
+    saved = load_course_saved_plan(user_id=int(user_pk), course_key=course_key, term=term)
+    if not saved or not isinstance(saved.get("targets"), dict):
+        return jsonify({"ok": False, "error": "No tienes un plan guardado para esta materia."}), 404
+
+    objetivo = st.get("objetivo")
+    if objetivo is None:
+        return jsonify({"ok": False, "error": "Esta materia no tiene objetivo definido."}), 400
+
+    secciones = st.get("secciones") or []
+    labels = st.get("labels") or []
+    nota_actual = float(calcular_nota_actual(secciones))
+
+    # model_key por código si existe (igual que en prob)
+    model_key = course_key
+    db = SessionLocal()
+    try:
+        from app.db.models import UserCourse
+        ucq = db.query(UserCourse).filter(UserCourse.user_id == int(user_pk), UserCourse.course_key == course_key)
+        if term:
+            ucq = ucq.filter(UserCourse.term == term)
+        uc = ucq.order_by(UserCourse.updated_at.desc()).one_or_none()
+        if uc and getattr(uc, "subject_id", None):
+            subj = db.query(Subject).filter(Subject.id == int(uc.subject_id)).one_or_none()
+            if subj and subj.code:
+                model_key = f"subj:{str(subj.code)}"
+    finally:
+        db.close()
+
+    evald = evaluate_plan_auto(
+        secciones=secciones,
+        labels=labels,
+        model_key=model_key,
+        nota_actual=float(nota_actual),
+        objetivo=float(objetivo),
+        targets=saved.get("targets") or {},
+        mc_samples=8000,
+        seed=123,
+    )
+    if not evald.get("ok") or not evald.get("plan"):
+        return jsonify({"ok": False, "error": "No se pudo evaluar el plan guardado."}), 500
+
+    return jsonify(
+        {
+            "ok": True,
+            "nota_actual": float(round(nota_actual, 2)),
+            "objetivo": float(objetivo),
+            "plan": evald["plan"],
         }
     )
 @api_bp.post("/calc")

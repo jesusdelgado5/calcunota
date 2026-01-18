@@ -2,13 +2,20 @@ from __future__ import annotations
 
 from typing import Optional
 
+from sqlalchemy import MetaData, Table, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import check_password_hash, generate_password_hash
 import secrets
 from datetime import datetime, timedelta
 
 from app.db import SessionLocal
-from app.db.models import AppUser, PasswordResetToken
+from app.db.models import PasswordResetToken
+
+
+def _app_user_table(db) -> Table:
+    # Refleja el esquema real (evita fallas si faltan columnas nuevas).
+    md = MetaData()
+    return Table("app_user", md, autoload_with=db.bind)
 
 
 def register_user(
@@ -24,20 +31,25 @@ def register_user(
         return None
     db = SessionLocal()
     try:
-        exists = db.query(AppUser).filter(AppUser.username == username).one_or_none()
+        t = _app_user_table(db)
+        exists = db.execute(select(t.c.id).where(t.c.username == username)).scalar_one_or_none()
         if exists:
             return None
-        row = AppUser(
-            username=username,
-            password_hash=generate_password_hash(password),
-            first_name=(first_name or "").strip() or None,
-            last_name=(last_name or "").strip() or None,
-            email=(email or "").strip() or None,
-        )
-        db.add(row)
+
+        values = {
+            "username": username,
+            "password_hash": generate_password_hash(password),
+        }
+        if "first_name" in t.c:
+            values["first_name"] = (first_name or "").strip() or None
+        if "last_name" in t.c:
+            values["last_name"] = (last_name or "").strip() or None
+        if "email" in t.c:
+            values["email"] = (email or "").strip() or None
+
+        db.execute(t.insert().values(**values))
         db.commit()
-        db.refresh(row)
-        return int(row.id)
+        return db.execute(select(t.c.id).where(t.c.username == username)).scalar_one()
     except SQLAlchemyError:
         try:
             db.rollback()
@@ -54,12 +66,17 @@ def authenticate_user(username: str, password: str) -> Optional[int]:
         return None
     db = SessionLocal()
     try:
-        row = db.query(AppUser).filter(AppUser.username == username).one_or_none()
-        if not row or not row.password_hash:
+        t = _app_user_table(db)
+        row = db.execute(select(t.c.id, t.c.password_hash).where(t.c.username == username)).first()
+        if not row:
             return None
-        if not check_password_hash(row.password_hash, password):
+        user_id = int(row[0])
+        pwd_hash = row[1]
+        if not pwd_hash:
             return None
-        return int(row.id)
+        if not check_password_hash(pwd_hash, password):
+            return None
+        return user_id
     except SQLAlchemyError:
         return None
     finally:
@@ -71,12 +88,13 @@ def change_password(user_id: int, current_password: str, new_password: str) -> b
         return False
     db = SessionLocal()
     try:
-        row = db.query(AppUser).filter(AppUser.id == int(user_id)).one_or_none()
-        if not row or not row.password_hash:
+        t = _app_user_table(db)
+        row = db.execute(select(t.c.password_hash).where(t.c.id == int(user_id))).scalar_one_or_none()
+        if not row:
             return False
-        if not check_password_hash(row.password_hash, current_password):
+        if not check_password_hash(row, current_password):
             return False
-        row.password_hash = generate_password_hash(new_password)
+        db.execute(update(t).where(t.c.id == int(user_id)).values(password_hash=generate_password_hash(new_password)))
         db.commit()
         return True
     except SQLAlchemyError:
@@ -98,13 +116,14 @@ def issue_reset_token(username: str, *, ttl_minutes: int = 15) -> Optional[str]:
         return None
     db = SessionLocal()
     try:
-        user = db.query(AppUser).filter(AppUser.username == username).one_or_none()
-        if not user:
+        t = _app_user_table(db)
+        user_id = db.execute(select(t.c.id).where(t.c.username == username)).scalar_one_or_none()
+        if not user_id:
             return None
         token = secrets.token_urlsafe(24)
         token_hash = generate_password_hash(token)
         expires_at = datetime.utcnow() + timedelta(minutes=int(ttl_minutes))
-        row = PasswordResetToken(user_id=user.id, token_hash=token_hash, expires_at=expires_at)
+        row = PasswordResetToken(user_id=int(user_id), token_hash=token_hash, expires_at=expires_at)
         db.add(row)
         db.commit()
         return token
@@ -123,14 +142,15 @@ def reset_password(username: str, token: str, new_password: str) -> bool:
         return False
     db = SessionLocal()
     try:
-        user = db.query(AppUser).filter(AppUser.username == username).one_or_none()
-        if not user:
+        t = _app_user_table(db)
+        user_id = db.execute(select(t.c.id).where(t.c.username == username)).scalar_one_or_none()
+        if not user_id:
             return False
         now = datetime.utcnow()
         rows = (
             db.query(PasswordResetToken)
             .filter(
-                PasswordResetToken.user_id == user.id,
+                PasswordResetToken.user_id == int(user_id),
                 PasswordResetToken.used == False,
                 PasswordResetToken.expires_at > now,
             )
@@ -146,7 +166,7 @@ def reset_password(username: str, token: str, new_password: str) -> bool:
         if not ok_row:
             return False
         ok_row.used = True
-        user.password_hash = generate_password_hash(new_password)
+        db.execute(update(t).where(t.c.id == int(user_id)).values(password_hash=generate_password_hash(new_password)))
         db.commit()
         return True
     except SQLAlchemyError:
