@@ -283,8 +283,35 @@
   </section>
 </div>
 
+<!-- Modal: confirmación de guardado -->
+<div id="saveModal" class="hidden fixed inset-0 z-50">
+  <div class="absolute inset-0 bg-slate-950/70"></div>
+  <div class="relative h-full w-full flex items-center justify-center p-6">
+    <div class="w-full max-w-md rounded-2xl border border-white/10 bg-slate-950 text-white shadow-2xl">
+      <div class="p-6 text-center">
+        <div class="mx-auto inline-flex items-center justify-center h-12 w-12 rounded-full bg-emerald-500/15 border border-emerald-400/30">
+          <span class="text-emerald-200 text-xl font-black">✓</span>
+        </div>
+        <h3 class="mt-4 text-xl font-extrabold tracking-tight">Plan guardado</h3>
+        <p id="saveModalMsg" class="mt-2 text-sm text-slate-200">
+          Tu plan se guardó correctamente. Te estamos redirigiendo al dashboard…
+        </p>
+        <div class="mt-6 flex items-center justify-center gap-3">
+          <button id="saveModalGo" type="button" class="rounded-xl bg-brand-600 hover:bg-brand-500 text-white px-5 py-2.5 font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/30">
+            Ir al dashboard
+          </button>
+          <button id="saveModalClose" type="button" class="rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-5 py-2.5 text-slate-100">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% block body_extra %}
 <script>
+  const DASHBOARD_URL = "{{ url_for('web.dashboard') }}";
   const subjectId = document.getElementById("subject_id");
   const subjectInput = document.getElementById("subject_input");
   const subjectDropdown = document.getElementById("subject_dropdown");
@@ -529,6 +556,30 @@
   const btnBackSummary = document.getElementById("btnBackSummary");
   const btnEditSummary = document.getElementById("btnEditSummary");
   const btnConfirmSummary = document.getElementById("btnConfirmSummary");
+
+  const saveModal = document.getElementById("saveModal");
+  const saveModalGo = document.getElementById("saveModalGo");
+  const saveModalClose = document.getElementById("saveModalClose");
+  let saveRedirectTimer = null;
+
+  function openSaveModal() {
+    if (!saveModal) return;
+    saveModal.classList.remove("hidden");
+    if (saveRedirectTimer) clearTimeout(saveRedirectTimer);
+    saveRedirectTimer = setTimeout(() => {
+      window.location.href = DASHBOARD_URL;
+    }, 1200);
+  }
+
+  function closeSaveModal() {
+    if (!saveModal) return;
+    saveModal.classList.add("hidden");
+    if (saveRedirectTimer) clearTimeout(saveRedirectTimer);
+    saveRedirectTimer = null;
+  }
+
+  saveModalGo?.addEventListener("click", () => { window.location.href = DASHBOARD_URL; });
+  saveModalClose?.addEventListener("click", closeSaveModal);
 
   let noteSectionIdx = 0;
   let wizardLabels = [];
@@ -1012,10 +1063,10 @@
               ${letter}
             </span>
           </div>
-          <div class="mt-2 hidden rounded-lg border border-rose-200 bg-rose-50 text-rose-800 px-3 py-2 text-sm" data-warn>
+          <div class="mt-2 hidden rounded-lg border border-rose-400/30 bg-rose-500/15 text-rose-100 px-3 py-2 text-sm" data-warn>
             Con estas metas no llegas al objetivo.
           </div>
-          <div class="mt-2 hidden rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 px-3 py-2 text-sm" data-saved>
+          <div class="mt-2 hidden rounded-lg border border-emerald-400/30 bg-emerald-500/15 text-emerald-100 px-3 py-2 text-sm" data-saved>
             Plan guardado en tu perfil.
           </div>
         </div>
@@ -1078,8 +1129,11 @@
       const warn = card.querySelector("[data-warn]");
       const bad = !p.llega_objetivo;
       warn.classList.toggle("hidden", !bad);
-      card.classList.toggle("border-rose-300", bad);
-      card.classList.toggle("bg-rose-50", bad);
+      // Estado rojo con contraste (mantiene el tema oscuro, solo tinte/contorno)
+      card.classList.toggle("border-rose-400/60", bad);
+      card.classList.toggle("bg-rose-500/10", bad);
+      card.classList.toggle("ring-2", bad);
+      card.classList.toggle("ring-rose-500/20", bad);
 
       const dmap = {};
       (p.details || []).forEach((d) => (dmap[d.eval_id] = d));
@@ -1122,6 +1176,7 @@
       const out = await savePlan(wizardCourseKey, targets);
       if (out && out.ok) {
         savedEl.classList.remove("hidden");
+        openSaveModal();
         return;
       }
       alert((out && (out.error || out.message)) || "No se pudo guardar el plan.");
