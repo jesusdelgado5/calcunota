@@ -419,6 +419,32 @@ def _prob_obj_mc(nota_actual: float, objetivo: float, evals: List[EvalSpec], sam
     return float(np.mean(total >= objetivo))
 
 
+def baseline_prob_only(
+    *,
+    secciones: List[Dict[str, Any]],
+    labels: List[str],
+    model_key: str,
+    nota_actual: float,
+    objetivo: float,
+    mc_samples: int = 8000,
+    seed: int = 123,
+) -> Dict[str, Any]:
+    """
+    Calcula SOLO la probabilidad base de alcanzar el objetivo (sin generar planes).
+    Útil para dashboards/listas donde queremos un cálculo rápido.
+    """
+    evals = build_evals_trust_with_priors(model_key, labels, secciones)
+    if not evals:
+        return {"ok": True, "baseline_prob": 1.0 if nota_actual >= objetivo else 0.0, "message": "No hay evaluaciones pendientes."}
+
+    theoretical_max_pos = float(nota_actual) + sum(float(e.weight) * 100.0 for e in evals)
+    if theoretical_max_pos + 1e-9 < float(objetivo):
+        return {"ok": True, "baseline_prob": 0.0, "message": "Objetivo inalcanzable aún con máximos teóricos."}
+
+    samples = _samples_beta_two_factor(evals, N=int(mc_samples), seed=int(seed))
+    baseline = float(_prob_obj_mc(float(nota_actual), float(objetivo), evals, samples))
+    return {"ok": True, "baseline_prob": round(baseline, 4), "message": None}
+
 def _prob_plan_mc(plan: Dict[str, Any], samples: Dict[str, np.ndarray]) -> float:
     N = len(next(iter(samples.values())))
     ok = np.ones(N, dtype=bool)

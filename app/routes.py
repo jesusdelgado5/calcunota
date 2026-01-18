@@ -72,11 +72,34 @@ def root():
 @web_bp.get("/dashboard")
 def dashboard():
     courses = []
+    course_details = []
     if is_auth():
         pk = _current_user_pk()
         if pk:
             courses = list_user_courses(user_id=pk)
-    return render_template("dashboard.html", active="home", is_auth=is_auth(), courses=courses)
+            # Para mostrar notas en dashboard sin depender de JS (preview/accordion)
+            for c in courses:
+                st = load_course_state(user_id=pk, course_key=c.course_key, term=c.term)
+                course_details.append(
+                    {
+                        "course_key": c.course_key,
+                        "course_name": c.course_name or c.course_key,
+                        "term": c.term,
+                        "objetivo": c.objetivo,
+                        "filled_slots": c.filled_slots,
+                        "total_slots": c.total_slots,
+                        "has_saved_plan": c.has_saved_plan,
+                        "labels": (st or {}).get("labels") or [],
+                        "secciones": (st or {}).get("secciones") or [],
+                    }
+                )
+    return render_template(
+        "dashboard.html",
+        active="home",
+        is_auth=is_auth(),
+        courses=courses,
+        course_details=course_details,
+    )
 
 # ✅ ajustes para el botón "Ajustes"
 @web_bp.get("/ajustes")

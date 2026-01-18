@@ -11,7 +11,7 @@ from app.services.sections import SECTION_TYPES, normalize_section_label
 from app.services.user_progress import upsert_course_config, set_course_objetivo
 from app.services.grades import resumen_desde_secciones, calcular_nota_actual
 from app.services.goal_grades import grade_to_objective
-from app.services.optimizer_beam_auto import optimize_auto_backend
+from app.services.optimizer_beam_auto import optimize_auto_backend, baseline_prob_only
 from app.services.observations import log_observed_score
 from app.services.predictions import resolve_predictions_with_new_score
 from app.services.grades import normalize_nota
@@ -351,6 +351,72 @@ def wizard_proyectar():
         objetivo=float(objetivo),
     )
     return jsonify({"ok": True, "result": res, "objetivo": float(objetivo), "nota_actual": float(round(nota_actual, 2))})
+
+
+@api_bp.post("/course/prob")
+def course_prob():
+    """
+    Devuelve probabilidad base de alcanzar objetivo para un curso del usuario.
+    JSON: { course_key, term? }
+    """
+    user_pk = session.get("user_pk")
+    if not user_pk:
+        return jsonify({"ok": False, "error": "Debes iniciar sesión."}), 401
+
+    payload = request.get_json(force=True, silent=True) or {}
+    course_key = str(payload.get("course_key") or "").strip()
+    term = payload.get("term")
+    term = str(term).strip() if term is not None else "default"
+    if not course_key:
+        return jsonify({"ok": False, "error": "Falta course_key."}), 400
+
+    from app.services.user_progress import load_course_state
+    st = load_course_state(user_id=int(user_pk), course_key=course_key, term=term)
+    if not st:
+        return jsonify({"ok": False, "error": "Materia no encontrada."}), 404
+
+    objetivo = st.get("objetivo")
+    if objetivo is None:
+        return jsonify({"ok": True, "baseline_prob": None, "nota_actual": None, "objetivo": None})
+
+    secciones = st.get("secciones") or []
+    labels = st.get("labels") or []
+    nota_actual = float(calcular_nota_actual(secciones))
+
+    # model_key por código si existe
+    model_key = course_key
+    db = SessionLocal()
+    try:
+        from app.db.models import UserCourse
+        ucq = db.query(UserCourse).filter(UserCourse.user_id == int(user_pk), UserCourse.course_key == course_key)
+        if term:
+            ucq = ucq.filter(UserCourse.term == term)
+        uc = ucq.order_by(UserCourse.updated_at.desc()).one_or_none()
+        if uc and getattr(uc, "subject_id", None):
+            subj = db.query(Subject).filter(Subject.id == int(uc.subject_id)).one_or_none()
+            if subj and subj.code:
+                model_key = f"subj:{str(subj.code)}"
+    finally:
+        db.close()
+
+    out = baseline_prob_only(
+        secciones=secciones,
+        labels=labels,
+        model_key=model_key,
+        nota_actual=nota_actual,
+        objetivo=float(objetivo),
+        mc_samples=5000,
+        seed=123,
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "baseline_prob": out.get("baseline_prob"),
+            "message": out.get("message"),
+            "nota_actual": float(round(nota_actual, 2)),
+            "objetivo": float(objetivo),
+        }
+    )
 @api_bp.post("/calc")
 def calc():
     """
